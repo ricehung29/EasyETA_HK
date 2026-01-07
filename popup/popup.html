@@ -9,10 +9,23 @@
 </head>
 <body>
     <div id="app">
-        <!-- Sticky Header -->
+        <!-- Top Navigation Header -->
         <header class="app-header">
             <h1 class="header-title">EasyETA</h1>
-            <button id="add-btn" class="header-btn hidden">Add</button>
+            <nav class="top-nav">
+                <button class="nav-item active" data-target="view-home">
+                    <span class="nav-icon">🏠</span>
+                    <span class="nav-label">Home</span>
+                </button>
+                <button class="nav-item" data-target="view-search">
+                    <span class="nav-icon">🔍</span>
+                    <span class="nav-label">Search</span>
+                </button>
+                <button class="nav-item" data-target="view-settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-label">Settings</span>
+                </button>
+            </nav>
         </header>
 
         <!-- Main Content Area with Views -->
@@ -62,7 +75,7 @@
             <!-- VIEW: SETTINGS -->
             <div id="view-settings" class="view">
                 <div class="section-group">
-                    <div class="list-item" onclick="chrome.runtime.openOptionsPage()">
+                    <div class="list-item" id="settings-item">
                         <div class="list-content">
                             <div class="list-title">Open Settings</div>
                             <div class="list-subtitle">Manage rules, favorites, and preferences</div>
@@ -93,22 +106,6 @@
              </div>
 
         </main>
-
-        <!-- Bottom Navigation -->
-        <nav class="bottom-nav">
-            <button class="nav-item active" data-target="view-home">
-                <span class="nav-icon">🏠</span>
-                <span class="nav-label">Home</span>
-            </button>
-            <button class="nav-item" data-target="view-search">
-                <span class="nav-icon">🔍</span>
-                <span class="nav-label">Search</span>
-            </button>
-            <button class="nav-item" data-target="view-settings">
-                <span class="nav-icon">⚙️</span>
-                <span class="nav-label">Settings</span>
-            </button>
-        </nav>
 
      <!-- Custom Modal -->
     <div id="app-modal" class="modal hidden">

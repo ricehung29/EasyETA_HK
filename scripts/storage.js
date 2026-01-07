@@ -178,21 +178,21 @@ const Storage = {
     },
 
     /**
-     * Get all custom tabs
-     * @returns {Promise<Array>} Array of custom tabs
+     * Get all folders
+     * @returns {Promise<Array>} Array of folders
      */
-    async getCustomTabs() {
-        const tabs = await this.get('customTabs');
-        return tabs || [];
+    async getFolders() {
+        const folders = await this.get('folders');
+        return folders || [];
     },
 
     /**
-     * Save custom tabs
-     * @param {Array} tabs - Array of custom tabs
+     * Save folders
+     * @param {Array} folders - Array of folders
      * @returns {Promise<boolean>} Success status
      */
-    async saveCustomTabs(tabs) {
-        return await this.set('customTabs', tabs);
+    async saveFolders(folders) {
+        return await this.set('folders', folders);
     },
 
     /**
@@ -302,7 +302,7 @@ if (typeof module !== 'undefined' && module.exports) {
 // Check if we're in a browser context (popup/content scripts) or service worker context
 if (typeof window !== 'undefined') {
     window.Storage = Storage;
-} else if (typeof globalThis !== 'undefined') {
-    // Service worker context
+} else if (typeof globalThis !== 'undefined' && typeof chrome !== 'undefined') {
+    // Service worker context - only assign if chrome APIs are available
     globalThis.Storage = Storage;
 }

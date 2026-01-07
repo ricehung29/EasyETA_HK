@@ -5,7 +5,7 @@ let state = {
     rules: [],
     favorites: [],
     timeslots: [],
-    customTabs: [],
+    folders: [],
     wizard: {
         step: 1,
         data: {
@@ -44,9 +44,9 @@ const elements = {
     timeslotsList: document.getElementById('timeslotsList'),
     addTimeslotBtn: document.getElementById('addTimeslotBtn'),
 
-    // Custom Tabs
-    customTabsList: document.getElementById('customTabsList'),
-    addCustomTabBtn: document.getElementById('addCustomTabBtn'),
+    // Folders
+    foldersList: document.getElementById('foldersList'),
+    addFolderBtn: document.getElementById('addFolderBtn'),
 
     // Settings
     settingDarkMode: document.getElementById('setting-dark-mode'),
@@ -58,7 +58,6 @@ const elements = {
     importBtn: document.getElementById('importBtn'),
     clearAllBtn: document.getElementById('clearAllBtn'),
     storageInfo: document.getElementById('storageInfo'),
-    testNotificationBtn: document.getElementById('testNotificationBtn'),
 
     // Wizard
     wizardSteps: document.querySelectorAll('.wizard-step'),
@@ -86,7 +85,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderRules();
     renderFavorites();
     renderTimeslots();
-    renderCustomTabs();
+    renderFolders();
     updateStorageInfo();
 });
 
@@ -102,9 +101,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function loadData() {
     state.rules = await Storage.getRules() || [];
     state.favorites = await Storage.getFavorites() || [];
-    state.timeslots = await Storage.getTimeslots() || [];
-    state.customTabs = await Storage.getCustomTabs() || [];
-    updateCustomTabCounts();
+    state.folders = await Storage.getFolders() || [];
+    
+    // Create default folder if none exist
+    if (state.folders.length === 0) {
+        state.folders = [{
+            id: 'default',
+            name: 'My Favourite',
+            color: '#007AFF',
+            favoritesCount: 0,
+            isDefault: true
+        }];
+        await Storage.saveFolders(state.folders);
+    }
+    
+    updateFolderCounts();
 }
 
 function openRuleWizard() {
@@ -144,8 +155,8 @@ function setupEventListeners() {
     // Timeslots
     elements.addTimeslotBtn.addEventListener('click', () => openTimeslotEditor());
 
-    // Custom Tabs
-    elements.addCustomTabBtn.addEventListener('click', () => openCustomTabEditor());
+    // Folders
+    elements.addFolderBtn.addEventListener('click', () => openFolderEditor());
 
     // Modal
     elements.closeBtns.forEach(btn => btn.addEventListener('click', closeRuleEditor));
@@ -157,7 +168,6 @@ function setupEventListeners() {
     elements.exportAllBtn.addEventListener('click', handleExport);
     elements.importBtn.addEventListener('click', handleImport);
     elements.clearAllBtn.addEventListener('click', handleClearAll);
-    elements.testNotificationBtn.addEventListener('click', handleTestNotification);
 
     // Settings
     setupSettings();
@@ -180,17 +190,20 @@ function setupSettings() {
     if (elements.settingDarkMode) {
         // Check saved preference
         if (localStorage.getItem('theme') === 'dark') {
-            elements.settingDarkMode.checked = true;
+            elements.settingDarkMode.classList.add('active');
             document.body.classList.add('dark-mode');
         }
 
-        elements.settingDarkMode.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                document.body.classList.add('dark-mode');
-                localStorage.setItem('theme', 'dark');
-            } else {
+        elements.settingDarkMode.addEventListener('click', (e) => {
+            const isActive = e.target.classList.contains('active');
+            if (isActive) {
+                e.target.classList.remove('active');
                 document.body.classList.remove('dark-mode');
                 localStorage.setItem('theme', 'light');
+            } else {
+                e.target.classList.add('active');
+                document.body.classList.add('dark-mode');
+                localStorage.setItem('theme', 'dark');
             }
         });
     }
@@ -200,11 +213,18 @@ function setupSettings() {
         // Check saved preference (default true)
         const savedAutoRefresh = localStorage.getItem('autoRefresh');
         if (savedAutoRefresh === 'false') {
-            elements.settingAutoRefresh.checked = false;
+            elements.settingAutoRefresh.classList.remove('active');
         }
 
-        elements.settingAutoRefresh.addEventListener('change', (e) => {
-            localStorage.setItem('autoRefresh', e.target.checked);
+        elements.settingAutoRefresh.addEventListener('click', (e) => {
+            const isActive = e.target.classList.contains('active');
+            if (isActive) {
+                e.target.classList.remove('active');
+                localStorage.setItem('autoRefresh', 'false');
+            } else {
+                e.target.classList.add('active');
+                localStorage.setItem('autoRefresh', 'true');
+            }
         });
     }
 }
@@ -549,8 +569,8 @@ function renderFavorites() { /* ... same ... */
         return;
     }
     container.innerHTML = state.favorites.map(fav => {
-        const customTabOptions = state.customTabs.map(tab => 
-            `<option value="${tab.id}" ${fav.customTab === tab.id ? 'selected' : ''}>${escapeHtml(tab.name)}</option>`
+        const folderOptions = state.folders.map(folder => 
+            `<option value="${folder.id}" ${fav.folder === folder.id ? 'selected' : ''}>${escapeHtml(folder.name)}</option>`
         ).join('');
         
         return `
@@ -558,16 +578,10 @@ function renderFavorites() { /* ... same ... */
             <div class="list-content">
                 <div class="list-title">${fav.route} <span style="font-weight:400; font-size:13px; color:var(--text-secondary);">to ${escapeHtml(fav.dest)}</span></div>
                 <div class="list-subtitle">${escapeHtml(fav.stopName)}</div>
-                <div style="margin-top: 4px; display: flex; gap: 8px;">
-                    <select class="form-select time-select" data-id="${fav.id}" style="font-size: 12px; padding: 2px 6px; width: auto;">
-                        <option value="all" ${fav.preferredTime === 'all' || !fav.preferredTime ? 'selected' : ''}>All Day</option>
-                        <option value="morning" ${fav.preferredTime === 'morning' ? 'selected' : ''}>Morning</option>
-                        <option value="afternoon" ${fav.preferredTime === 'afternoon' ? 'selected' : ''}>Afternoon</option>
-                        <option value="evening" ${fav.preferredTime === 'evening' ? 'selected' : ''}>Evening</option>
-                    </select>
-                    <select class="form-select tab-select" data-id="${fav.id}" style="font-size: 12px; padding: 2px 6px; width: auto;">
-                        <option value="all" ${fav.customTab === 'all' || !fav.customTab ? 'selected' : ''}>No Tab</option>
-                        ${customTabOptions}
+                <div style="margin-top: 4px;">
+                    <select class="form-select folder-select" data-id="${fav.id}" style="font-size: 12px; padding: 2px 6px; width: auto;">
+                        <option value="" ${!fav.folder ? 'selected' : ''}>No Folder</option>
+                        ${folderOptions}
                     </select>
                 </div>
             </div>
@@ -581,14 +595,9 @@ function renderFavorites() { /* ... same ... */
             handleDeleteFavorite(e.target.dataset.id);
         });
     });
-    container.querySelectorAll('.time-select').forEach(select => {
+    container.querySelectorAll('.folder-select').forEach(select => {
         select.addEventListener('change', (e) => {
-            handleUpdateFavoriteTime(e.target.dataset.id, e.target.value);
-        });
-    });
-    container.querySelectorAll('.tab-select').forEach(select => {
-        select.addEventListener('change', (e) => {
-            handleUpdateFavoriteTab(e.target.dataset.id, e.target.value);
+            handleUpdateFavoriteFolder(e.target.dataset.id, e.target.value);
         });
     });
 }
@@ -653,28 +662,20 @@ async function handleClearAll() { /* Same implementation */
 }
 function escapeHtml(text) { if (!text) return ''; return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 
-async function handleUpdateFavoriteTime(id, time) {
+async function handleUpdateFavoriteFolder(id, folderId) {
     const fav = state.favorites.find(f => f.id === id);
     if (fav) {
-        fav.preferredTime = time;
+        fav.folder = folderId;
         await Storage.saveFavorites(state.favorites);
+        // Update folder counts
+        updateFolderCounts();
+        renderFolders();
     }
 }
 
-async function handleUpdateFavoriteTab(id, tabId) {
-    const fav = state.favorites.find(f => f.id === id);
-    if (fav) {
-        fav.customTab = tabId;
-        await Storage.saveFavorites(state.favorites);
-        // Update tab counts
-        updateCustomTabCounts();
-        renderCustomTabs();
-    }
-}
-
-function updateCustomTabCounts() {
-    state.customTabs.forEach(tab => {
-        tab.favoritesCount = state.favorites.filter(fav => fav.customTab === tab.id).length;
+function updateFolderCounts() {
+    state.folders.forEach(folder => {
+        folder.favoritesCount = state.favorites.filter(fav => fav.folder === folder.id).length;
     });
 }
 
@@ -698,25 +699,30 @@ function renderTimeslots() {
     if (state.timeslots.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                <p>No custom timeslots defined</p>
-                <small>Timeslots are used to categorize your favorites by time of day.</small>
+                <p>No timeslots defined</p>
+                <small>Timeslots define when your favorites should show ETAs in the popup.</small>
             </div>
         `;
         return;
     }
 
-    container.innerHTML = state.timeslots.map(slot => `
+    container.innerHTML = state.timeslots.map(slot => {
+        const daysDisplay = slot.days ? slot.days.map(day => 
+            day.charAt(0).toUpperCase() + day.slice(1)
+        ).join(', ') : 'All Days';
+        
+        return `
         <div class="list-item">
             <div class="list-content">
                 <div class="list-title">${escapeHtml(slot.name)}</div>
-                <div class="list-subtitle">${slot.startTime} - ${slot.endTime}</div>
+                <div class="list-subtitle">${daysDisplay} • ${slot.startTime} - ${slot.endTime}</div>
             </div>
             <div class="list-trailing">
                 <button class="btn-secondary timeslot-edit-btn" data-timeslot-id="${slot.id}">Edit</button>
-                <button class="btn-danger timeslot-delete-btn" data-timeslot-id="${slot.id}">Delete</button>
+                ${!slot.isDefault ? `<button class="btn-danger timeslot-delete-btn" data-timeslot-id="${slot.id}">Delete</button>` : ''}
             </div>
         </div>
-    `).join('');
+    `}).join('');
 
     // Attach event listeners
     container.querySelectorAll('.timeslot-edit-btn').forEach(btn => {
@@ -740,19 +746,35 @@ function openTimeslotEditor(slotId = null) {
     const name = slot ? slot.name : '';
     const startTime = slot ? slot.startTime : '08:00';
     const endTime = slot ? slot.endTime : '09:00';
+    const selectedDays = slot ? (slot.days || []) : ['monday'];
     
     const title = slot ? 'Edit Timeslot' : 'Add Timeslot';
-    const action = slot ? `updateTimeslot('${slotId}')` : 'createTimeslot()';
+    const isDefault = slot ? slot.isDefault : false;
     
-    // Create modal HTML
+    const daysOfWeek = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    
+    // Create modal HTML using options.css structure
     const modalHtml = `
-        <div class="modal-backdrop timeslot-modal-backdrop"></div>
-        <div class="modal-dialog">
-            <h3 class="modal-title">${title}</h3>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">${title}</h3>
+                <button class="close-btn" id="timeslotCloseBtn">&times;</button>
+            </div>
             <div class="modal-body">
                 <div class="form-group">
                     <label>Name:</label>
-                    <input type="text" id="timeslotName" value="${escapeHtml(name)}" placeholder="e.g., Morning Commute">
+                    <input type="text" id="timeslotName" value="${escapeHtml(name)}" placeholder="e.g., Work Commute" ${isDefault ? 'readonly' : ''}>
+                </div>
+                <div class="form-group">
+                    <label>Days of Week:</label>
+                    <div class="days-selector">
+                        ${daysOfWeek.map(day => `
+                            <label class="day-checkbox">
+                                <input type="checkbox" value="${day}" ${selectedDays.includes(day) ? 'checked' : ''} ${isDefault ? 'disabled' : ''}>
+                                ${day.charAt(0).toUpperCase() + day.slice(1)}
+                            </label>
+                        `).join('')}
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Start Time:</label>
@@ -762,10 +784,11 @@ function openTimeslotEditor(slotId = null) {
                     <label>End Time:</label>
                     <input type="time" id="timeslotEnd" value="${endTime}">
                 </div>
+                ${isDefault ? '<div class="form-note">This is a default timeslot. Only time range can be edited.</div>' : ''}
             </div>
-            <div class="modal-actions">
-                <button class="btn-secondary timeslot-cancel-btn">Cancel</button>
-                <button class="btn-primary timeslot-save-btn" data-slot-id="${slotId || ''}">Save</button>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="timeslotCancelBtn">Cancel</button>
+                <button class="btn-primary" id="timeslotSaveBtn" data-slot-id="${slotId || ''}">Save</button>
             </div>
         </div>
     `;
@@ -776,11 +799,14 @@ function openTimeslotEditor(slotId = null) {
     modal.innerHTML = modalHtml;
     document.body.appendChild(modal);
     
+    // Show modal
+    modal.style.display = 'flex';
+    
     // Attach event listeners
-    modal.querySelector('.timeslot-modal-backdrop').addEventListener('click', closeTimeslotEditor);
-    modal.querySelector('.timeslot-cancel-btn').addEventListener('click', closeTimeslotEditor);
-    modal.querySelector('.timeslot-save-btn').addEventListener('click', () => {
-        const saveBtn = modal.querySelector('.timeslot-save-btn');
+    modal.querySelector('#timeslotCloseBtn').addEventListener('click', closeTimeslotEditor);
+    modal.querySelector('#timeslotCancelBtn').addEventListener('click', closeTimeslotEditor);
+    modal.querySelector('#timeslotSaveBtn').addEventListener('click', () => {
+        const saveBtn = modal.querySelector('#timeslotSaveBtn');
         const slotId = saveBtn.dataset.slotId;
         if (slotId) {
             updateTimeslot(slotId);
@@ -789,14 +815,21 @@ function openTimeslotEditor(slotId = null) {
         }
     });
     
-    setTimeout(() => modal.classList.add('active'), 10);
+    // Focus on appropriate input
+    setTimeout(() => {
+        if (!isDefault) {
+            modal.querySelector('#timeslotName').focus();
+        } else {
+            modal.querySelector('#timeslotStart').focus();
+        }
+    }, 100);
 }
 
 function closeTimeslotEditor() {
     const modal = document.getElementById('timeslotModal');
     if (modal) {
-        modal.classList.remove('active');
-        setTimeout(() => modal.remove(), 300);
+        modal.style.display = 'none';
+        modal.remove();
     }
 }
 
@@ -805,14 +838,35 @@ async function createTimeslot() {
     const startTime = document.getElementById('timeslotStart').value;
     const endTime = document.getElementById('timeslotEnd').value;
     
-    if (!name || !startTime || !endTime) {
-        alert('Please fill in all fields');
+    // Get selected days
+    const selectedDays = Array.from(document.querySelectorAll('.days-selector input:checked')).map(cb => cb.value);
+    
+    if (!name || !startTime || !endTime || selectedDays.length === 0) {
+        alert('Please fill in all fields and select at least one day');
+        return;
+    }
+    
+    // Check for duplicate timeslots (same days and overlapping time)
+    const hasConflict = state.timeslots.some(slot => {
+        if (!slot.days) return false;
+        const overlappingDays = slot.days.filter(day => selectedDays.includes(day));
+        if (overlappingDays.length === 0) return false;
+        
+        // Check time overlap
+        const slotStart = slot.startTime;
+        const slotEnd = slot.endTime;
+        return (startTime < slotEnd && endTime > slotStart);
+    });
+    
+    if (hasConflict) {
+        alert('This timeslot conflicts with an existing one. Timeslots cannot overlap on the same days.');
         return;
     }
     
     const newSlot = {
         id: Date.now().toString(),
         name,
+        days: selectedDays,
         startTime,
         endTime
     };
@@ -821,6 +875,7 @@ async function createTimeslot() {
     await Storage.saveTimeslots(state.timeslots);
     renderTimeslots();
     closeTimeslotEditor();
+    chrome.runtime.sendMessage({ action: 'refreshTimeslots' });
 }
 
 async function updateTimeslot(id) {
@@ -828,19 +883,43 @@ async function updateTimeslot(id) {
     const startTime = document.getElementById('timeslotStart').value;
     const endTime = document.getElementById('timeslotEnd').value;
     
-    if (!name || !startTime || !endTime) {
-        alert('Please fill in all fields');
+    // Get selected days
+    const selectedDays = Array.from(document.querySelectorAll('.days-selector input:checked')).map(cb => cb.value);
+    
+    if (!name || !startTime || !endTime || selectedDays.length === 0) {
+        alert('Please fill in all fields and select at least one day');
         return;
     }
     
     const slot = state.timeslots.find(s => s.id === id);
     if (slot) {
+        // Check for conflicts with other timeslots (excluding this one)
+        const hasConflict = state.timeslots.some(otherSlot => {
+            if (otherSlot.id === id || !otherSlot.days) return false;
+            const overlappingDays = otherSlot.days.filter(day => selectedDays.includes(day));
+            if (overlappingDays.length === 0) return false;
+            
+            // Check time overlap
+            const slotStart = otherSlot.startTime;
+            const slotEnd = otherSlot.endTime;
+            return (startTime < slotEnd && endTime > slotStart);
+        });
+        
+        if (hasConflict) {
+            alert('This timeslot conflicts with an existing one. Timeslots cannot overlap on the same days.');
+            return;
+        }
+        
         slot.name = name;
+        if (!slot.isDefault) {
+            slot.days = selectedDays;
+        }
         slot.startTime = startTime;
         slot.endTime = endTime;
         await Storage.saveTimeslots(state.timeslots);
         renderTimeslots();
         closeTimeslotEditor();
+        chrome.runtime.sendMessage({ action: 'refreshTimeslots' });
     }
 }
 
@@ -849,170 +928,213 @@ async function deleteTimeslot(id) {
         state.timeslots = state.timeslots.filter(s => s.id !== id);
         await Storage.saveTimeslots(state.timeslots);
         renderTimeslots();
+        chrome.runtime.sendMessage({ action: 'refreshTimeslots' });
     }
 }
 
-// --- CUSTOM TABS MANAGEMENT ---
+// --- FOLDER MANAGEMENT ---
 
-function renderCustomTabs() {
-    const container = elements.customTabsList;
+function renderFolders() {
+    const container = elements.foldersList;
     
-    if (state.customTabs.length === 0) {
+    if (state.folders.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                <p>No custom tabs defined</p>
-                <small>Create custom tabs to organize your favorites into categories.</small>
+                <p>No folders created</p>
+                <small>Create folders to organize your favorites into categories.</small>
             </div>
         `;
         return;
     }
 
-    container.innerHTML = state.customTabs.map(tab => `
-        <div class="list-item">
-            <div class="list-content">
-                <div class="list-title">${escapeHtml(tab.name)}</div>
-                <div class="list-subtitle">${tab.favoritesCount || 0} favorites</div>
-            </div>
-            <div class="list-trailing">
-                <button class="btn-secondary custom-tab-edit-btn" data-tab-id="${tab.id}">Edit</button>
-                <button class="btn-danger custom-tab-delete-btn" data-tab-id="${tab.id}">Delete</button>
+    container.innerHTML = state.folders.map(folder => `
+        <div class="folder-item" style="background: linear-gradient(135deg, ${folder.color}15, ${folder.color}08); border-left: 4px solid ${folder.color};">
+            <div class="folder-header">
+                <div class="folder-icon" style="color: ${folder.color};">📁</div>
+                <div class="folder-info">
+                    <div class="folder-name">${escapeHtml(folder.name)}</div>
+                    <div class="folder-count">${folder.favoritesCount || 0} favorites</div>
+                    ${folder.timeslotId ? `<div class="folder-timeslot">Timeslot: ${state.timeslots.find(slot => slot.id === folder.timeslotId)?.name || folder.timeslotId}</div>` : '<div class="folder-timeslot">No specific timeslot</div>'}
+                </div>
+                ${!folder.isDefault ? `
+                <div class="folder-actions">
+                    <button class="btn-secondary folder-edit-btn" data-folder-id="${folder.id}">Edit</button>
+                    <button class="btn-danger folder-delete-btn" data-folder-id="${folder.id}">Delete</button>
+                </div>
+                ` : ''}
             </div>
         </div>
     `).join('');
 
     // Attach event listeners
-    container.querySelectorAll('.custom-tab-edit-btn').forEach(btn => {
+    container.querySelectorAll('.folder-edit-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const tabId = btn.dataset.tabId;
-            openCustomTabEditor(tabId);
+            const folderId = btn.dataset.folderId;
+            openFolderEditor(folderId);
         });
     });
 
-    container.querySelectorAll('.custom-tab-delete-btn').forEach(btn => {
+    container.querySelectorAll('.folder-delete-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const tabId = btn.dataset.tabId;
-            deleteCustomTab(tabId);
+            const folderId = btn.dataset.folderId;
+            deleteFolder(folderId);
         });
     });
 }
 
-function openCustomTabEditor(tabId = null) {
-    const tab = tabId ? state.customTabs.find(t => t.id === tabId) : null;
+function openFolderEditor(folderId = null) {
+    const folder = folderId ? state.folders.find(f => f.id === folderId) : null;
     
-    const name = tab ? tab.name : '';
-    const color = tab ? tab.color : '#007AFF';
+    const name = folder ? folder.name : '';
+    const color = folder ? folder.color : '#007AFF';
+    const timeslotId = folder ? folder.timeslotId || '' : '';
     
-    const title = tab ? 'Edit Tab' : 'Add Tab';
+    const timeslotOptions = [
+        `<option value="">No specific time</option>`,
+        ...state.timeslots.map(slot => 
+            `<option value="${slot.id}" ${timeslotId === slot.id ? 'selected' : ''}>${escapeHtml(slot.name)}</option>`
+        )
+    ].join('');
     
-    // Create modal HTML
+    const title = folder ? 'Edit Folder' : 'Add Folder';
+    
+    // Create modal HTML using options.css structure
     const modalHtml = `
-        <div class="modal-backdrop custom-tab-modal-backdrop"></div>
-        <div class="modal-dialog">
-            <h3 class="modal-title">${title}</h3>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">${title}</h3>
+                <button class="close-btn" id="folderCloseBtn">&times;</button>
+            </div>
             <div class="modal-body">
                 <div class="form-group">
                     <label>Name:</label>
-                    <input type="text" id="customTabName" value="${escapeHtml(name)}" placeholder="e.g., Work Routes">
+                    <input type="text" id="folderName" value="${escapeHtml(name)}" placeholder="e.g., Work Routes">
                 </div>
                 <div class="form-group">
                     <label>Color:</label>
-                    <input type="color" id="customTabColor" value="${color}">
+                    <input type="color" id="folderColor" value="${color}">
+                </div>
+                <div class="form-group">
+                    <label>Timeslot:</label>
+                    <select id="folderTimeslot" class="form-select">
+                        ${timeslotOptions}
+                    </select>
+                    <small class="form-help">Favorites in this folder will appear during this timeslot</small>
                 </div>
             </div>
-            <div class="modal-actions">
-                <button class="btn-secondary custom-tab-cancel-btn">Cancel</button>
-                <button class="btn-primary custom-tab-save-btn" data-tab-id="${tabId || ''}">Save</button>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="folderCancelBtn">Cancel</button>
+                <button class="btn-primary" id="folderSaveBtn" data-folder-id="${folderId || ''}">Save</button>
             </div>
         </div>
     `;
     
     const modal = document.createElement('div');
-    modal.id = 'customTabModal';
+    modal.id = 'folderModal';
     modal.className = 'modal';
     modal.innerHTML = modalHtml;
     document.body.appendChild(modal);
     
+    // Show modal
+    modal.style.display = 'flex';
+    
     // Attach event listeners
-    modal.querySelector('.custom-tab-modal-backdrop').addEventListener('click', closeCustomTabEditor);
-    modal.querySelector('.custom-tab-cancel-btn').addEventListener('click', closeCustomTabEditor);
-    modal.querySelector('.custom-tab-save-btn').addEventListener('click', () => {
-        const saveBtn = modal.querySelector('.custom-tab-save-btn');
-        const tabId = saveBtn.dataset.tabId;
-        if (tabId) {
-            updateCustomTab(tabId);
+    modal.querySelector('#folderCloseBtn').addEventListener('click', closeFolderEditor);
+    modal.querySelector('#folderCancelBtn').addEventListener('click', closeFolderEditor);
+    modal.querySelector('#folderSaveBtn').addEventListener('click', () => {
+        const saveBtn = modal.querySelector('#folderSaveBtn');
+        const folderId = saveBtn.dataset.folderId;
+        if (folderId) {
+            updateFolder(folderId);
         } else {
-            createCustomTab();
+            createFolder();
         }
     });
     
-    setTimeout(() => modal.classList.add('active'), 10);
+    // Focus on name input
+    setTimeout(() => {
+        modal.querySelector('#folderName').focus();
+    }, 100);
 }
 
-function closeCustomTabEditor() {
-    const modal = document.getElementById('customTabModal');
+function closeFolderEditor() {
+    const modal = document.getElementById('folderModal');
     if (modal) {
-        modal.classList.remove('active');
-        setTimeout(() => modal.remove(), 300);
+        modal.style.display = 'none';
+        modal.remove();
     }
 }
 
-async function createCustomTab() {
-    const name = document.getElementById('customTabName').value.trim();
-    const color = document.getElementById('customTabColor').value;
+async function createFolder() {
+    const name = document.getElementById('folderName').value.trim();
+    const color = document.getElementById('folderColor').value;
+    const timeslotId = document.getElementById('folderTimeslot').value;
     
     if (!name) {
-        alert('Please enter a tab name');
+        alert('Please enter a folder name');
         return;
     }
     
-    const newTab = {
+    const newFolder = {
         id: Date.now().toString(),
         name,
         color,
-        favoritesCount: 0
+        favoritesCount: 0,
+        timeslotId
     };
     
-    state.customTabs.push(newTab);
-    await Storage.saveCustomTabs(state.customTabs);
-    renderCustomTabs();
-    closeCustomTabEditor();
+    state.folders.push(newFolder);
+    await Storage.saveFolders(state.folders);
+    renderFolders();
+    closeFolderEditor();
+    
+    // Notify popup to refresh folders
+    chrome.runtime.sendMessage({ action: 'refreshFolders' });
 }
 
-async function updateCustomTab(id) {
-    const name = document.getElementById('customTabName').value.trim();
-    const color = document.getElementById('customTabColor').value;
+async function updateFolder(id) {
+    const name = document.getElementById('folderName').value.trim();
+    const color = document.getElementById('folderColor').value;
+    const timeslotId = document.getElementById('folderTimeslot').value;
     
     if (!name) {
-        alert('Please enter a tab name');
+        alert('Please enter a folder name');
         return;
     }
     
-    const tab = state.customTabs.find(t => t.id === id);
-    if (tab) {
-        tab.name = name;
-        tab.color = color;
-        await Storage.saveCustomTabs(state.customTabs);
-        renderCustomTabs();
-        closeCustomTabEditor();
+    const folder = state.folders.find(f => f.id === id);
+    if (folder) {
+        folder.name = name;
+        folder.color = color;
+        folder.timeslotId = timeslotId;
+        await Storage.saveFolders(state.folders);
+        renderFolders();
+        closeFolderEditor();
+        
+        // Notify popup to refresh folders
+        chrome.runtime.sendMessage({ action: 'refreshFolders' });
     }
 }
 
-async function deleteCustomTab(id) {
-    if (confirm('Delete this custom tab? Favorites in this tab will be moved to "All".')) {
-        // Remove the tab
-        state.customTabs = state.customTabs.filter(t => t.id !== id);
+async function deleteFolder(id) {
+    if (confirm('Delete this folder? Favorites in this folder will be moved to "No Folder".')) {
+        // Remove the folder
+        state.folders = state.folders.filter(f => f.id !== id);
         
-        // Move favorites from this tab to "all"
+        // Move favorites from this folder to "No Folder"
         state.favorites.forEach(fav => {
-            if (fav.customTab === id) {
-                fav.customTab = 'all';
+            if (fav.folder === id) {
+                fav.folder = '';
             }
         });
         
-        await Storage.saveCustomTabs(state.customTabs);
+        await Storage.saveFolders(state.folders);
         await Storage.saveFavorites(state.favorites);
-        renderCustomTabs();
+        renderFolders();
         renderFavorites();
+        
+        // Notify popup to refresh folders
+        chrome.runtime.sendMessage({ action: 'refreshFolders' });
     }
 }
 

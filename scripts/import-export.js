@@ -17,12 +17,18 @@ const ImportExport = {
             data: {
                 rules: data.rules || [],
                 favorites: data.favorites || [],
-                settings: data.settings || Storage.getDefaultSettings()
+                folders: data.folders || [],
+                timeslots: data.timeslots || [],
+                recentSearches: data.recentSearches || [],
+                settings: data.settings || Storage.getDefaultSettings(),
+                usage: data.usage || {}
             },
             
             stats: {
                 totalRules: (data.rules || []).length,
                 totalFavorites: (data.favorites || []).length,
+                totalFolders: (data.folders || []).length,
+                totalTimeslots: (data.timeslots || []).length,
                 rulesEnabled: (data.rules || []).filter(r => r.enabled).length
             }
         };
@@ -162,6 +168,9 @@ const ImportExport = {
             merge = false,      // If true, merge with existing data; if false, replace
             importRules = true,
             importFavorites = true,
+            importFolders = true,
+            importTimeslots = true,
+            importRecentSearches = true,
             importSettings = true
         } = options;
         
@@ -176,6 +185,9 @@ const ImportExport = {
             imported: {
                 rules: 0,
                 favorites: 0,
+                folders: 0,
+                timeslots: 0,
+                recentSearches: 0,
                 settings: false
             },
             errors: [],
@@ -231,6 +243,82 @@ const ImportExport = {
                 
                 await Storage.saveFavorites(combinedFavorites);
                 result.imported.favorites = newFavorites.length;
+            }
+            
+            // Import folders
+            if (importFolders && data.data.folders) {
+                const existingFolders = merge ? await Storage.getFolders() : [];
+                const newFolders = data.data.folders;
+                
+                let combinedFolders;
+                if (merge) {
+                    // Merge: add new folders, update existing ones
+                    combinedFolders = [...existingFolders];
+                    newFolders.forEach(newFolder => {
+                        const existingIndex = combinedFolders.findIndex(f => f.id === newFolder.id);
+                        if (existingIndex >= 0) {
+                            combinedFolders[existingIndex] = newFolder;
+                        } else {
+                            combinedFolders.push(newFolder);
+                        }
+                    });
+                } else {
+                    // Replace
+                    combinedFolders = newFolders;
+                }
+                
+                await Storage.saveFolders(combinedFolders);
+                result.imported.folders = newFolders.length;
+            }
+            
+            // Import timeslots
+            if (importTimeslots && data.data.timeslots) {
+                const existingTimeslots = merge ? await Storage.getTimeslots() : [];
+                const newTimeslots = data.data.timeslots;
+                
+                let combinedTimeslots;
+                if (merge) {
+                    // Merge: add new timeslots, update existing ones
+                    combinedTimeslots = [...existingTimeslots];
+                    newTimeslots.forEach(newTimeslot => {
+                        const existingIndex = combinedTimeslots.findIndex(t => t.id === newTimeslot.id);
+                        if (existingIndex >= 0) {
+                            combinedTimeslots[existingIndex] = newTimeslot;
+                        } else {
+                            combinedTimeslots.push(newTimeslot);
+                        }
+                    });
+                } else {
+                    // Replace
+                    combinedTimeslots = newTimeslots;
+                }
+                
+                await Storage.saveTimeslots(combinedTimeslots);
+                result.imported.timeslots = newTimeslots.length;
+            }
+            
+            // Import recent searches
+            if (importRecentSearches && data.data.recentSearches) {
+                const existingRecentSearches = merge ? await Storage.getRecentSearches() : [];
+                const newRecentSearches = data.data.recentSearches;
+                
+                let combinedRecentSearches;
+                if (merge) {
+                    // Merge: add new searches, avoid duplicates
+                    combinedRecentSearches = [...existingRecentSearches];
+                    newRecentSearches.forEach(newSearch => {
+                        const exists = combinedRecentSearches.some(s => s.query === newSearch.query);
+                        if (!exists) {
+                            combinedRecentSearches.push(newSearch);
+                        }
+                    });
+                } else {
+                    // Replace
+                    combinedRecentSearches = newRecentSearches;
+                }
+                
+                await Storage.saveRecentSearches(combinedRecentSearches);
+                result.imported.recentSearches = newRecentSearches.length;
             }
             
             // Import settings

@@ -5,6 +5,8 @@ class App {
     constructor() {
         this.currentView = 'view-home';
         this.favorites = [];
+        this.folders = [];
+        this.timeslots = [];
         this.searchDebounce = null;
         this.activeEtaIntervals = []; // To clear intervals when leaving view
         this.currentFavTab = 'all'; // Current favorite tab
@@ -16,6 +18,7 @@ class App {
         this.setupNavigation();
         this.setupSearch();
         this.setupFavorites();
+        this.setupDarkMode();
         await this.loadData();
         this.renderHome();
     }
@@ -23,6 +26,8 @@ class App {
     async loadData() {
         try {
             this.favorites = await Storage.getFavorites() || [];
+            this.folders = await Storage.getFolders() || [];
+            this.timeslots = await Storage.getTimeslots() || [];
             // Pre-warm cache if needed
         } catch (e) {
             console.error("Load data error", e);
@@ -41,6 +46,14 @@ class App {
                 this.navigateTo(target);
             });
         });
+
+        // Settings item in the settings view
+        const settingsItem = document.getElementById('settings-item');
+        if (settingsItem) {
+            settingsItem.addEventListener('click', () => {
+                chrome.runtime.openOptionsPage();
+            });
+        }
 
         const backBtn = document.getElementById('back-btn');
         if (backBtn) {
@@ -87,17 +100,48 @@ class App {
     }
 
     // --- HOME VIEW ---
+    renderFavoriteTabs() {
+        const tabGroup = document.querySelector('.tab-group');
+        
+        const tabs = [
+            { id: 'all', name: 'All Favorites', icon: '🕐' },
+            ...this.timeslots.map(slot => ({ id: slot.id, name: slot.name, icon: '⏰' })),
+            ...this.folders.map(folder => ({ id: folder.id, name: folder.name, icon: '📁', color: folder.color }))
+        ];
+        
+        tabGroup.innerHTML = tabs.map(tab => 
+            `<button class="tab-btn ${this.currentFavTab === tab.id ? 'active' : ''}" 
+                     data-fav-tab="${tab.id}" 
+                     style="${tab.color ? `--tab-color: ${tab.color}` : ''}">
+                ${tab.icon} ${tab.name}
+            </button>`
+        ).join('');
+        
+        // Re-attach event listeners
+        this.setupFavorites();
+    }
+    
     async renderHome() {
+        // Render tabs first
+        this.renderFavoriteTabs();
+        
         const favList = document.getElementById('favorites-list');
         const recentList = document.getElementById('recent-list');
         
         // Filter favorites by current tab
         let filteredFavorites = this.favorites;
         if (this.currentFavTab !== 'all') {
-            filteredFavorites = this.favorites.filter(fav => {
-                const preferredTime = fav.preferredTime || 'all';
-                return preferredTime === this.currentFavTab || preferredTime === 'all';
-            });
+            // Check if it's a timeslot or custom tab
+            const isTimeslot = this.timeslots.some(slot => slot.id === this.currentFavTab);
+            if (isTimeslot) {
+                // Show favorites from folders that have this timeslot assigned
+                const foldersWithTimeslot = this.folders.filter(folder => folder.timeslotId === this.currentFavTab);
+                const folderIds = foldersWithTimeslot.map(folder => folder.id);
+                filteredFavorites = this.favorites.filter(fav => folderIds.includes(fav.folder));
+            } else {
+                // It's a folder
+                filteredFavorites = this.favorites.filter(fav => fav.folder === this.currentFavTab);
+            }
         }
         
         // Render Favorites
@@ -108,7 +152,7 @@ class App {
                 <div class="list-item favorite-item" data-id="${fav.id}">
                     <div class="list-content">
                         <div class="list-title">${fav.route} <span class="badge badge-primary">To ${fav.dest || '...'}</span></div>
-                        <div class="list-subtitle">${fav.stopName} ${fav.preferredTime ? `<span class="badge">${this.getTimeLabel(fav.preferredTime)}</span>` : ''}</div>
+                        <div class="list-subtitle">${fav.stopName} ${this.getFolderTimeslotLabel(fav.folder) ? `<span class="badge">${this.getFolderTimeslotLabel(fav.folder)}</span>` : ''}</div>
                     </div>
                     <div class="list-trailing">
                         ▶
@@ -194,14 +238,38 @@ class App {
         });
     }
 
+    setupDarkMode() {
+        // Check saved preference and apply dark mode
+        if (localStorage.getItem('theme') === 'dark') {
+            document.body.classList.add('dark-mode');
+        }
+    }
+
     getTimeLabel(time) {
+        if (!time) return '';
+        
+        // First try to find it as a timeslot ID
+        const timeslot = this.timeslots.find(slot => slot.id === time);
+        if (timeslot) return timeslot.name;
+        
+        // Fallback to old labels for backward compatibility
         const labels = {
             morning: '🌅 Morning',
             afternoon: '☀️ Afternoon', 
-            evening: '🌙 Evening',
-            all: '🕐 All Day'
+            evening: '🌙 Evening'
         };
         return labels[time] || time;
+    }
+
+    getFolderTimeslotLabel(folderId) {
+        if (!folderId) return '';
+        
+        const folder = this.folders.find(f => f.id === folderId);
+        if (folder && folder.timeslotId) {
+            return this.getTimeLabel(folder.timeslotId);
+        }
+        
+        return '';
     }
 
     async addToFavourites(data) {
@@ -225,7 +293,7 @@ class App {
             dest: dest,
             stopId: stopId,
             stopName: stopName,
-            preferredTime: 'all' // Default to all day
+            preferredTime: '' // Default to no specific timeslot
         };
 
         // Add to favourites
@@ -521,10 +589,10 @@ class App {
             const cancelBtn = document.createElement('button');
             cancelBtn.className = 'modal-btn';
             cancelBtn.textContent = cancelText;
-            cancelBtn.onclick = () => {
+            cancelBtn.addEventListener('click', () => {
                 modal.classList.remove('active');
                 setTimeout(() => modal.classList.add('hidden'), 200);
-            };
+            });
             actionsEl.appendChild(cancelBtn);
         }
         
@@ -532,11 +600,11 @@ class App {
         const confirmBtn = document.createElement('button');
         confirmBtn.className = `modal-btn bold ${confirmStyle === 'danger' ? 'danger' : ''}`;
         confirmBtn.textContent = confirmText;
-        confirmBtn.onclick = () => {
+        confirmBtn.addEventListener('click', () => {
             modal.classList.remove('active');
             setTimeout(() => modal.classList.add('hidden'), 200);
             if (onConfirm) onConfirm();
-        };
+        });
         actionsEl.appendChild(confirmBtn);
         
         // Show
@@ -600,9 +668,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app = new App();
 });
 
-// Listen for messages from options page to refresh favourites
+// Listen for messages from options page to refresh favourites and folders
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === 'refreshFavourites' && window.app) {
+    if ((message.action === 'refreshFavourites' || message.action === 'refreshFolders' || message.action === 'refreshTimeslots') && window.app) {
         window.app.loadData().then(() => {
             window.app.renderHome();
         });
