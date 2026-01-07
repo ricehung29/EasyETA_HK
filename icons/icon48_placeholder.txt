@@ -1,0 +1,5 @@
+Placeholder for icon48.png
+
+To generate actual icons:
+1. Open create_icons.html in a browser, OR
+2. Use an online SVG to PNG converter with icon.svg

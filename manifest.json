@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "EasyETA_HK",
+  "version": "1.0.0",
+  "description": "Smart Hong Kong public transport ETA checker with advanced rule programming and notifications",
+  
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "EasyETA_HK - Check Bus ETA"
+  },
+
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications"
+  ],
+
+  "host_permissions": [
+    "https://data.etabus.gov.hk/*",
+    "https://data.etagmb.gov.hk/*",
+    "https://rt.data.gov.hk/*"
+  ],
+
+  "options_page": "options/options.html",
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+
+  "offline_enabled": true
+}
