@@ -1,14 +1,22 @@
 # EasyETA_HK 🚌
 
-A powerful Chrome extension for Hong Kong public transport with advanced rule programming and smart notifications.
+A powerful Chrome extension for Hong Kong public transport with advanced rule programming, smart notifications, and a modern Tailwind UI.
 
 ## ✨ Features
 
-### 🎯 Quick ETA Checking
-- Real-time bus arrival information
-- Save favorite stops for instant access
-- Support for multiple routes and stops
-- Clean, intuitive popup interface
+### 📱 **Smart Side Panel Interface**
+- **Direct Route Display**: Search shows complete route with all stops and real-time ETA
+- **Live ETA Integration**: Automatic loading of arrival times for first 10 stops
+- **Interactive Stop List**: Click any stop to load individual ETA information
+- **Route Refresh**: One-click refresh for all ETA data on a route
+- **Settings Access**: Direct link to options page for configuration
+
+### ⭐ Smart Favorites & History
+- **Quick Access**: Save frequently used stops
+- **Recent Searches**: Auto-track your route searches
+- **One-Tap ETA**: Instant real-time arrival information
+- **Persistent Storage**: All data saved locally in Chrome
+- **Organized Tabs**: Separate views for favorites and route search
 
 ### 🔧 Advanced Rule Programming
 **EasyETA_HK is not just a notification tool—it's a programmable automation platform!**
@@ -39,7 +47,8 @@ function evaluate(context) {
 ### 🔒 Privacy-First Design
 - **100% Local Storage**: All data stored in your browser
 - **Zero Telemetry**: No tracking, no analytics, no data collection
-- **No Cloud Dependency**: Works completely offline
+- **No Cloud Dependency**: Works completely offline (after route cache)
+- **API Resilience**: Graceful fallback to mock data when APIs are unavailable
 - **Export/Import**: Full data portability and backup
 
 ### 💾 Data Management
@@ -60,9 +69,9 @@ Set up smart notifications for your commute home:
 
 ### Student
 - Quick ETA checks with saved favorite stops
+- Route autocomplete for easy discovery
 - One-time reminders for specific times
-- Flexible rules for varying schedules
-- Export settings to sync between devices
+- Recent searches for frequently used routes
 
 ## 🚀 Installation
 
@@ -78,7 +87,32 @@ _(Coming soon)_
 
 ## 📖 Quick Start
 
-1. **Click the extension icon** to open the popup
+### Search for a Route
+1. **Right-click the extension icon** → "Open side panel"
+2. Type a route number (e.g., "1", "2X", "234A")
+3. Select from autocomplete suggestions
+4. **Choose direction** (Outbound/Inbound) if multiple options available
+5. View stops and real-time ETAs
+
+### Check ETA
+1. Click on any stop in the route list
+2. View real-time ETA in a beautiful modal
+3. ETA auto-refreshes every 30 seconds
+4. Add to favorites for quick access
+
+### Manage Favorites
+1. After viewing ETA, click "★ Add to Favorites"
+2. Access favorites from the main tab
+3. One-tap to view ETA anytime
+4. Remove with the trash icon
+
+### Customize Settings
+1. Click the settings icon (⚙️) in the header
+2. Choose ETA display format (relative, absolute, or both)
+3. Settings are saved automatically
+
+### Getting Started
+1. **Right-click the extension icon** → "Open side panel"
 2. **Search for your bus stop** and add to favorites
 3. **Set up rules** in the Options page:
    - Simple: Use the visual builder
@@ -97,7 +131,7 @@ _(Coming soon)_
 ```
 EasyETA_HK/
 ├── manifest.json              # Extension configuration
-├── popup/                     # Popup interface
+├── sidepanel/                 # Side panel interface
 ├── options/                   # Settings page
 ├── background/                # Service worker
 ├── scripts/                   # Shared utilities

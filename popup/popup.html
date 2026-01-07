@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EasyETA</title>
+    <!-- Use local Leaflet files to comply with CSP -->
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Sticky Header -->
+        <header class="app-header">
+            <h1 class="header-title">EasyETA</h1>
+            <button id="add-btn" class="header-btn hidden">Add</button>
+        </header>
+
+        <!-- Main Content Area with Views -->
+        <main class="main-content">
+            
+            <!-- VIEW: HOME (Favorites & Recent) -->
+            <div id="view-home" class="view active">
+                <div class="section-title">Favorites</div>
+                
+                <!-- Favorite Tabs -->
+                <div class="tab-group" style="margin-bottom: 16px;">
+                    <button class="tab-btn active" data-fav-tab="all">All</button>
+                    <button class="tab-btn" data-fav-tab="morning">Morning</button>
+                    <button class="tab-btn" data-fav-tab="afternoon">Afternoon</button>
+                    <button class="tab-btn" data-fav-tab="evening">Evening</button>
+                </div>
+                
+                <div id="favorites-list" class="section-group">
+                    <!-- JS will populate this -->
+                    <div class="list-item">
+                        <div class="list-content">
+                            <div class="list-subtitle">No favorites yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-title">Recent Searches</div>
+                <div id="recent-list" class="section-group">
+                    <!-- JS will populate -->
+                </div>
+            </div>
+
+            <!-- VIEW: SEARCH -->
+            <div id="view-search" class="view">
+                <div class="search-container">
+                    <div class="search-input-wrapper">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="route-search-input" class="search-input" placeholder="Search route (e.g. 968, 1A)">
+                    </div>
+                </div>
+                
+                <div id="search-results" class="mt-md">
+                    <!-- JS will populate route results -->
+                </div>
+            </div>
+
+            <!-- VIEW: SETTINGS -->
+            <div id="view-settings" class="view">
+                <div class="section-group">
+                    <div class="list-item" onclick="chrome.runtime.openOptionsPage()">
+                        <div class="list-content">
+                            <div class="list-title">Open Settings</div>
+                            <div class="list-subtitle">Manage rules, favorites, and preferences</div>
+                        </div>
+                        <div class="list-trailing">
+                            →
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+             <!-- VIEW: ROUTE DETAILS (Hidden by default, overlays others or navigates) -->
+             <!-- We implement a simple stack navigation via class toggling -->
+             <div id="view-details" class="view hidden" style="background: var(--background-color);">
+                <div class="section-group" style="margin-bottom: 0;">
+                    <div class="list-item" style="padding: 16px;">
+                        <div>
+                            <h2 id="detail-route-no" class="route-number-display">N/A</h2>
+                            <p id="detail-route-dest" class="list-subtitle">To Destination</p>
+                        </div>
+                        <button id="back-btn" class="header-btn" style="position:relative; right:0; font-size: 24px; padding: 0 8px; line-height: 1;">&times;</button>
+                    </div>
+                </div>
+                
+                <div id="stops-container" class="section-group">
+                    <!-- Stops list -->
+                </div>
+             </div>
+
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" data-target="view-home">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">Home</span>
+            </button>
+            <button class="nav-item" data-target="view-search">
+                <span class="nav-icon">🔍</span>
+                <span class="nav-label">Search</span>
+            </button>
+            <button class="nav-item" data-target="view-settings">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-label">Settings</span>
+            </button>
+        </nav>
+
+     <!-- Custom Modal -->
+    <div id="app-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-dialog">
+            <h3 id="modal-title" class="modal-title">Title</h3>
+            <p id="modal-message" class="modal-message">Message goes here</p>
+            <div id="modal-actions" class="modal-actions">
+                <!-- Buttons injected via JS -->
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="../scripts/storage.js"></script>
+    <script src="../scripts/api.js"></script>
+    <script src="../scripts/rule-engine.js"></script>
+    <script src="popup.js"></script>
+</body>
+</html>

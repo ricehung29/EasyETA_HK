@@ -1,23 +1,17 @@
 {
   "manifest_version": 3,
   "name": "EasyETA_HK",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Smart Hong Kong public transport ETA checker with advanced rule programming and notifications",
   
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  },
-
   "action": {
+    "default_title": "EasyETA_HK - HK Bus Tracker",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
-    },
-    "default_title": "EasyETA_HK - Check Bus ETA"
+    }
   },
 
   "background": {
@@ -27,7 +21,8 @@
   "permissions": [
     "storage",
     "alarms",
-    "notifications"
+    "notifications",
+    "activeTab"
   ],
 
   "host_permissions": [
@@ -39,7 +34,7 @@
   "options_page": "options/options.html",
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
 
   "offline_enabled": true

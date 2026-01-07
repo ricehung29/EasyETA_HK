@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EasyETA_HK - Settings</title>
+    <link rel="stylesheet" href="options.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Settings</h1>
+            <div class="header-actions">
+                <!-- Save handled automatically or explicitly everywhere -->
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="rules">Rules</button>
+            <button class="nav-tab" data-tab="favorites">Favorites</button>
+            <button class="nav-tab" data-tab="timeslots">Timeslots</button>
+            <button class="nav-tab" data-tab="tabs">Custom Tabs</button>
+            <button class="nav-tab" data-tab="settings">Settings</button>
+            <button class="nav-tab" data-tab="data">Data</button>
+            <button class="nav-tab" data-tab="about">About</button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Rules Tab -->
+            <section id="rulesTab" class="tab-pane active">
+                <div class="section-header">
+                    <span class="section-title">Notification Rules</span>
+                    <button id="addRuleBtn" class="btn-primary">Add Rule</button>
+                </div>
+                
+                <div class="section-group">
+                    <div id="rulesList">
+                        <div class="empty-state">
+                            <p>No rules created yet</p>
+                            <small>Create rules to get automated notifications for your routes.</small>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Favorites Tab -->
+             <section id="favoritesTab" class="tab-pane">
+                <div class="section-header">
+                    <span class="section-title">Managed Favorites</span>
+                    <button id="addFavouriteBtn" class="btn-primary">Add Favourite</button>
+                </div>
+                <div class="section-group">
+                    <div id="favoritesListAdmin">
+                         <!-- Populated by JS -->
+                         <div class="empty-state">Loading...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Timeslots Tab -->
+            <section id="timeslotsTab" class="tab-pane">
+                <div class="section-header">
+                    <span class="section-title">Timeslot Management</span>
+                    <button id="addTimeslotBtn" class="btn-primary">Add Timeslot</button>
+                </div>
+                <div class="section-group">
+                    <div id="timeslotsList">
+                        <div class="empty-state">
+                            <p>No custom timeslots defined</p>
+                            <small>Timeslots are used to categorize your favorites by time of day.</small>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Custom Tabs Tab -->
+            <section id="tabsTab" class="tab-pane">
+                <div class="section-header">
+                    <span class="section-title">Custom Tabs</span>
+                    <button id="addCustomTabBtn" class="btn-primary">Add Tab</button>
+                </div>
+                <div class="section-group">
+                    <div id="customTabsList">
+                        <div class="empty-state">
+                            <p>No custom tabs defined</p>
+                            <small>Create custom tabs to organize your favorites into categories.</small>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="settingsTab" class="tab-pane">
+                <div class="section-header">
+                    <span class="section-title">App Settings</span>
+                </div>
+                <div class="section-group">
+                    <div class="list-item">
+                        <div class="list-content">
+                            <div class="list-title">Dark Mode (Beta)</div>
+                            <div class="list-subtitle">Enable dark theme for the extension</div>
+                        </div>
+                        <div class="list-trailing">
+                             <label class="toggle-switch">
+                                <input type="checkbox" id="setting-dark-mode">
+                                <span class="slider"></span>
+                             </label>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-content">
+                            <div class="list-title">Auto Refresh (30s)</div>
+                            <div class="list-subtitle">Automatically refresh ETA data every 30 seconds</div>
+                        </div>
+                        <div class="list-trailing">
+                             <label class="toggle-switch">
+                                <input type="checkbox" id="setting-auto-refresh" checked>
+                                <span class="slider"></span>
+                             </label>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-content">
+                            <div class="list-title">Test Notification</div>
+                            <div class="list-subtitle">Send a test notification to verify functionality</div>
+                        </div>
+                        <div class="list-trailing">
+                             <button id="testNotificationBtn" class="btn-secondary">Test</button>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-content">
+                            <div class="list-title">Version</div>
+                        </div>
+                        <div class="list-trailing">1.2.0</div>
+                    </div>
+                    <div class="list-item" id="clear-data-btn">
+                        <div class="list-content">
+                            <div class="list-title" style="color: var(--danger-color);">Reset All Data</div>
+                            <div class="list-subtitle">Remove all favorites, rules, and history</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Data Management Tab -->
+            <section id="dataTab" class="tab-pane">
+                <div class="section-header">
+                    <span class="section-title">Backup & Restore</span>
+                </div>
+                <div class="section-group">
+                    <div class="list-item">
+                        <div class="list-content">
+                            <div class="list-title">Export Data</div>
+                            <div class="list-subtitle">Save your favorites and rules to a file</div>
+                        </div>
+                        <div class="list-trailing">
+                             <button id="exportAllBtn" class="btn-secondary">Export JSON</button>
+                        </div>
+                    </div>
+                    
+                    <div class="list-item" style="flex-direction: column; align-items: stretch; gap: 10px;">
+                        <div class="list-content">
+                            <div class="list-title">Import Data</div>
+                            <div class="list-subtitle">Restore from a backup file</div>
+                        </div>
+                         <div style="display: flex; gap: 10px;">
+                            <input type="file" id="importFile" accept=".json" class="form-input" style="flex:1;">
+                            <button id="importBtn" class="btn-primary">Import</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-header">
+                    <span class="section-title danger">Danger Zone</span>
+                </div>
+                <div class="section-group">
+                     <div class="list-item">
+                        <div class="list-content">
+                            <div class="list-title" style="color: var(--danger-color);">Clear All Data</div>
+                            <div class="list-subtitle">Remove all favorites, rules, and history</div>
+                        </div>
+                        <div class="list-trailing">
+                             <button id="clearAllBtn" class="btn-danger">Clear Everything</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="section-header">
+                    <span class="section-title">Storage Usage</span>
+                </div>
+                <div class="section-group">
+                    <div class="list-item">
+                        <div id="storageInfo" class="list-title" style="font-weight: 400; font-size: 14px;">Calculating...</div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- About Tab -->
+            <section id="aboutTab" class="tab-pane">
+                 <div class="section-group" style="text-align: center; padding: 40px;">
+                    <h2 style="margin-bottom: 10px;">🚌 EasyETA_HK</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">Version 1.0.0</p>
+                    <p>A simple, fast, and privacy-focused KMB bus tracker for Hong Kong.</p>
+                    <div style="margin-top: 30px;">
+                        <button id="testNotificationBtn" class="btn-secondary">Test Notification</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Rule Editor Modal (Wizard) -->
+    <div id="ruleEditor" class="modal hidden">
+        <div class="modal-content large-wizard">
+            <div class="modal-header">
+                <h3 id="wizardTitle">New Notification Rule</h3>
+                <button class="close-btn">&times;</button>
+            </div>
+            
+            <div class="modal-body wizard-body">
+                <!-- Progress Bar -->
+                <div class="wizard-progress">
+                    <div class="step active" data-step="1">1. Target</div>
+                    <div class="step" data-step="2">2. Trigger</div>
+                    <div class="step" data-step="3">3. Schedule</div>
+                </div>
+
+                <!-- STEP 1: TARGET SELECTION -->
+                <div id="step-1" class="wizard-step active">
+                    <div class="tab-group">
+                        <button class="tab-btn active" data-target-type="route">By Route</button>
+                        <button class="tab-btn" data-target-type="stop">By Stop (Beta)</button>
+                    </div>
+
+                    <!-- Route Search View -->
+                    <div id="target-route-view" class="target-view active">
+                        <div class="form-group">
+                            <label class="form-label">Search Route</label>
+                            <input type="text" id="routeSearchInput" class="form-input" placeholder="e.g. 968, 1A">
+                            <div id="routeResults" class="results-list hidden"></div>
+                        </div>
+                        
+                        <div id="route-dir-selection" class="hidden">
+                            <div class="form-group">
+                                <label class="form-label">Direction</label>
+                                <select id="routeDirectionSelect" class="form-select"></select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Select Stop</label>
+                                <select id="routeStopSelect" class="form-select" disabled>
+                                    <option>Select direction first...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stop Search View -->
+                    <div id="target-stop-view" class="target-view hidden">
+                         <div class="form-group">
+                            <label class="form-label">Stop ID (Search by name coming soon)</label>
+                            <div style="display:flex; gap:8px;">
+                                <input type="text" id="stopIdInput" class="form-input" placeholder="e.g. B00123">
+                                <button id="stopSearchBtn" class="btn-secondary">Find</button>
+                            </div>
+                         </div>
+                         <div id="stop-routes-list" class="results-list hidden"></div>
+                    </div>
+                </div>
+
+                <!-- STEP 2: TRIGGER -->
+                <div id="step-2" class="wizard-step hidden">
+                    <h4 class="step-title">When should we notify you?</h4>
+                    
+                    <div class="trigger-option">
+                        <input type="radio" name="triggerType" id="trig-eta" value="eta" checked>
+                        <label for="trig-eta">When ETA is less than</label>
+                        <select id="triggerMinutes" class="form-select inline-select">
+                            <option value="5">5 mins</option>
+                            <option value="10">10 mins</option>
+                            <option value="15">15 mins</option>
+                        </select>
+                    </div>
+
+                    <div class="trigger-option">
+                        <input type="radio" name="triggerType" id="trig-arrive" value="arriving">
+                        <label for="trig-arrive">When bus is Arriving (1 min)</label>
+                    </div>
+                    
+                    <div class="trigger-option disabled">
+                         <input type="radio" name="triggerType" disabled>
+                         <label style="color:var(--text-secondary)">Monitor Loop (Coming Soon)</label>
+                    </div>
+                </div>
+
+                <!-- STEP 3: SCHEDULE -->
+                <div id="step-3" class="wizard-step hidden">
+                     <h4 class="step-title">Active Schedule</h4>
+                     <p class="step-desc">Only check during these times to save battery.</p>
+
+                     <div class="form-group">
+                        <label class="form-label">Time Range</label>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <input type="time" id="startTime" class="form-input" value="08:00">
+                            <span>to</span>
+                            <input type="time" id="endTime" class="form-input" value="09:00">
+                        </div>
+                     </div>
+
+                     <div class="form-group">
+                        <label class="form-label">Days</label>
+                        <div class="days-selector">
+                            <label><input type="checkbox" value="1" checked> Mon</label>
+                            <label><input type="checkbox" value="2" checked> Tue</label>
+                            <label><input type="checkbox" value="3" checked> Wed</label>
+                            <label><input type="checkbox" value="4" checked> Thu</label>
+                            <label><input type="checkbox" value="5" checked> Fri</label>
+                            <label><input type="checkbox" value="6"> Sat</label>
+                            <label><input type="checkbox" value="0"> Sun</label>
+                        </div>
+                     </div>
+                     
+                     <div class="form-group">
+                         <label class="form-label">Rule Name (Optional)</label>
+                         <input type="text" id="finalRuleName" class="form-input" placeholder="e.g. Morning Bus">
+                     </div>
+                </div>
+
+            </div>
+            
+            <div class="modal-footer wizard-footer">
+                <button id="prevStepBtn" class="btn-secondary hidden">Back</button>
+                <button id="nextStepBtn" class="btn-primary" disabled>Next</button>
+                <button id="finishStepBtn" class="btn-primary hidden">Create Rule</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../scripts/storage.js"></script>
+    <script src="../scripts/api.js"></script>
+    <script src="options.js"></script>
+</body>
+</html>

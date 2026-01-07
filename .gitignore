@@ -1,0 +1,17 @@
+.DS_Store
+*.log
+node_modules/
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.zip
+dist/
+build/
+.env
+.env.local
+
+# Don't ignore these (keep placeholders)
+!icons/icon.svg
+!icons/create_icons.html

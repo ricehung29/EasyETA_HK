@@ -1,0 +1,286 @@
+// Import/Export Utility
+// Handles data export and import for backup and sync
+
+const ImportExport = {
+    /**
+     * Export all data to JSON
+     * @returns {Promise<Object>} Exportable data object
+     */
+    async exportAll() {
+        const data = await Storage.getAll();
+        
+        const exportData = {
+            version: '1.0.0',
+            exportedAt: new Date().toISOString(),
+            exportedBy: `EasyETA_HK v${chrome.runtime.getManifest().version}`,
+            
+            data: {
+                rules: data.rules || [],
+                favorites: data.favorites || [],
+                settings: data.settings || Storage.getDefaultSettings()
+            },
+            
+            stats: {
+                totalRules: (data.rules || []).length,
+                totalFavorites: (data.favorites || []).length,
+                rulesEnabled: (data.rules || []).filter(r => r.enabled).length
+            }
+        };
+        
+        return exportData;
+    },
+
+    /**
+     * Export only rules
+     * @returns {Promise<Object>} Exportable rules data
+     */
+    async exportRules() {
+        const rules = await Storage.getRules();
+        
+        return {
+            version: '1.0.0',
+            exportedAt: new Date().toISOString(),
+            type: 'rules',
+            data: { rules },
+            stats: {
+                totalRules: rules.length,
+                rulesEnabled: rules.filter(r => r.enabled).length
+            }
+        };
+    },
+
+    /**
+     * Export only favorites
+     * @returns {Promise<Object>} Exportable favorites data
+     */
+    async exportFavorites() {
+        const favorites = await Storage.getFavorites();
+        
+        return {
+            version: '1.0.0',
+            exportedAt: new Date().toISOString(),
+            type: 'favorites',
+            data: { favorites },
+            stats: {
+                totalFavorites: favorites.length
+            }
+        };
+    },
+
+    /**
+     * Download export data as JSON file
+     * @param {Object} data - Data to export
+     * @param {string} filename - Filename for download
+     */
+    downloadJSON(data, filename = 'easyeta_backup.json') {
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+            type: 'application/json'
+        });
+        
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        
+        // Clean up
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+    },
+
+    /**
+     * Validate import data
+     * @param {Object} data - Data to validate
+     * @returns {Object} Validation result
+     */
+    validateImport(data) {
+        const errors = [];
+        const warnings = [];
+        
+        // Check required fields
+        if (!data.version) {
+            errors.push('Missing version field');
+        }
+        
+        if (!data.data) {
+            errors.push('Missing data field');
+        }
+        
+        // Check version compatibility
+        if (data.version && !this.isVersionCompatible(data.version)) {
+            warnings.push(`Data version ${data.version} may not be fully compatible`);
+        }
+        
+        // Validate rules if present
+        if (data.data?.rules) {
+            if (!Array.isArray(data.data.rules)) {
+                errors.push('Rules must be an array');
+            } else {
+                data.data.rules.forEach((rule, index) => {
+                    if (!rule.id) {
+                        errors.push(`Rule ${index} is missing ID`);
+                    }
+                    if (!rule.name) {
+                        errors.push(`Rule ${index} is missing name`);
+                    }
+                });
+            }
+        }
+        
+        // Validate favorites if present
+        if (data.data?.favorites) {
+            if (!Array.isArray(data.data.favorites)) {
+                errors.push('Favorites must be an array');
+            }
+        }
+        
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings
+        };
+    },
+
+    /**
+     * Check if version is compatible
+     * @param {string} version - Version string to check
+     * @returns {boolean} True if compatible
+     */
+    isVersionCompatible(version) {
+        // Simple version check - can be enhanced
+        const [major] = version.split('.');
+        return major === '1';
+    },
+
+    /**
+     * Import data from JSON object
+     * @param {Object} data - Data to import
+     * @param {Object} options - Import options
+     * @returns {Promise<Object>} Import result
+     */
+    async importData(data, options = {}) {
+        const {
+            merge = false,      // If true, merge with existing data; if false, replace
+            importRules = true,
+            importFavorites = true,
+            importSettings = true
+        } = options;
+        
+        // Validate first
+        const validation = this.validateImport(data);
+        if (!validation.valid) {
+            throw new Error(`Invalid import data: ${validation.errors.join(', ')}`);
+        }
+        
+        const result = {
+            success: false,
+            imported: {
+                rules: 0,
+                favorites: 0,
+                settings: false
+            },
+            errors: [],
+            warnings: validation.warnings
+        };
+        
+        try {
+            // Import rules
+            if (importRules && data.data.rules) {
+                const existingRules = merge ? await Storage.getRules() : [];
+                const newRules = data.data.rules;
+                
+                let combinedRules;
+                if (merge) {
+                    // Merge: add new rules, update existing ones
+                    combinedRules = [...existingRules];
+                    newRules.forEach(newRule => {
+                        const existingIndex = combinedRules.findIndex(r => r.id === newRule.id);
+                        if (existingIndex >= 0) {
+                            combinedRules[existingIndex] = newRule;
+                        } else {
+                            combinedRules.push(newRule);
+                        }
+                    });
+                } else {
+                    // Replace
+                    combinedRules = newRules;
+                }
+                
+                await Storage.saveRules(combinedRules);
+                result.imported.rules = newRules.length;
+            }
+            
+            // Import favorites
+            if (importFavorites && data.data.favorites) {
+                const existingFavorites = merge ? await Storage.getFavorites() : [];
+                const newFavorites = data.data.favorites;
+                
+                let combinedFavorites;
+                if (merge) {
+                    // Merge: add new favorites, avoid duplicates
+                    combinedFavorites = [...existingFavorites];
+                    newFavorites.forEach(newFav => {
+                        const exists = combinedFavorites.some(f => f.stopId === newFav.stopId);
+                        if (!exists) {
+                            combinedFavorites.push(newFav);
+                        }
+                    });
+                } else {
+                    // Replace
+                    combinedFavorites = newFavorites;
+                }
+                
+                await Storage.saveFavorites(combinedFavorites);
+                result.imported.favorites = newFavorites.length;
+            }
+            
+            // Import settings
+            if (importSettings && data.data.settings) {
+                const currentSettings = await Storage.getSettings();
+                const newSettings = merge 
+                    ? { ...currentSettings, ...data.data.settings }
+                    : data.data.settings;
+                
+                await Storage.saveSettings(newSettings);
+                result.imported.settings = true;
+            }
+            
+            result.success = true;
+        } catch (error) {
+            result.errors.push(error.message);
+            throw error;
+        }
+        
+        return result;
+    },
+
+    /**
+     * Read JSON file from file input
+     * @param {File} file - File object from input
+     * @returns {Promise<Object>} Parsed JSON data
+     */
+    async readJSONFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    resolve(data);
+                } catch (error) {
+                    reject(new Error('Invalid JSON file'));
+                }
+            };
+            
+            reader.onerror = () => {
+                reject(new Error('Failed to read file'));
+            };
+            
+            reader.readAsText(file);
+        });
+    }
+};
+
+// Export for use in other scripts
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = ImportExport;
+}
