@@ -6,7 +6,6 @@ class App {
         this.currentView = 'view-home';
         this.favorites = [];
         this.folders = [];
-        this.timeslots = [];
         this.searchDebounce = null;
         this.activeEtaIntervals = []; // To clear intervals when leaving view
         this.currentFavTab = 'all'; // Current favorite tab
@@ -27,11 +26,22 @@ class App {
         try {
             this.favorites = await Storage.getFavorites() || [];
             this.folders = await Storage.getFolders() || [];
-            this.timeslots = await Storage.getTimeslots() || [];
             // Pre-warm cache if needed
         } catch (e) {
             console.error("Load data error", e);
         }
+    }
+
+    getCurrentActiveFolders() {
+        const now = new Date();
+        const currentDay = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase(); // 'monday', etc.
+        const currentTime = now.toTimeString().slice(0, 5); // HH:MM
+
+        return this.folders.filter(folder => {
+            if (!folder.timeslot || !folder.timeslot.days) return false;
+            if (!folder.timeslot.days.includes(currentDay)) return false;
+            return currentTime >= folder.timeslot.startTime && currentTime <= folder.timeslot.endTime;
+        });
     }
 
     setupNavigation() {
@@ -103,11 +113,13 @@ class App {
     renderFavoriteTabs() {
         const tabGroup = document.querySelector('.tab-group');
         
-        const tabs = [
-            { id: 'all', name: 'All Favorites', icon: '🕐' },
-            ...this.timeslots.map(slot => ({ id: slot.id, name: slot.name, icon: '⏰' })),
-            ...this.folders.map(folder => ({ id: folder.id, name: folder.name, icon: '📁', color: folder.color }))
-        ];
+        const activeFolders = this.getCurrentActiveFolders();
+        let tabs;
+        if (activeFolders.length > 0) {
+            tabs = activeFolders.map(folder => ({ id: folder.id, name: folder.name, icon: '📁', color: folder.color }));
+        } else {
+            tabs = [{ id: 'all', name: 'All Favorites', icon: '🕐' }];
+        }
         
         tabGroup.innerHTML = tabs.map(tab => 
             `<button class="tab-btn ${this.currentFavTab === tab.id ? 'active' : ''}" 
@@ -125,23 +137,21 @@ class App {
         // Render tabs first
         this.renderFavoriteTabs();
         
+        // Ensure currentFavTab is valid
+        const activeFolders = this.getCurrentActiveFolders();
+        const validTabs = activeFolders.length > 0 ? activeFolders.map(f => f.id) : ['all'];
+        if (!validTabs.includes(this.currentFavTab)) {
+            this.currentFavTab = validTabs[0];
+        }
+        
         const favList = document.getElementById('favorites-list');
         const recentList = document.getElementById('recent-list');
         
         // Filter favorites by current tab
         let filteredFavorites = this.favorites;
         if (this.currentFavTab !== 'all') {
-            // Check if it's a timeslot or custom tab
-            const isTimeslot = this.timeslots.some(slot => slot.id === this.currentFavTab);
-            if (isTimeslot) {
-                // Show favorites from folders that have this timeslot assigned
-                const foldersWithTimeslot = this.folders.filter(folder => folder.timeslotId === this.currentFavTab);
-                const folderIds = foldersWithTimeslot.map(folder => folder.id);
-                filteredFavorites = this.favorites.filter(fav => folderIds.includes(fav.folder));
-            } else {
-                // It's a folder
-                filteredFavorites = this.favorites.filter(fav => fav.folder === this.currentFavTab);
-            }
+            // It's a folder
+            filteredFavorites = this.favorites.filter(fav => fav.folder === this.currentFavTab);
         }
         
         // Render Favorites
@@ -265,8 +275,8 @@ class App {
         if (!folderId) return '';
         
         const folder = this.folders.find(f => f.id === folderId);
-        if (folder && folder.timeslotId) {
-            return this.getTimeLabel(folder.timeslotId);
+        if (folder && folder.timeslot && folder.timeslot.days) {
+            return `${folder.timeslot.days.join(', ')} ${folder.timeslot.startTime}-${folder.timeslot.endTime}`;
         }
         
         return '';
@@ -292,8 +302,7 @@ class App {
             route: route,
             dest: dest,
             stopId: stopId,
-            stopName: stopName,
-            preferredTime: '' // Default to no specific timeslot
+            stopName: stopName
         };
 
         // Add to favourites
@@ -670,7 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Listen for messages from options page to refresh favourites and folders
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if ((message.action === 'refreshFavourites' || message.action === 'refreshFolders' || message.action === 'refreshTimeslots') && window.app) {
+    if ((message.action === 'refreshFavourites' || message.action === 'refreshFolders') && window.app) {
         window.app.loadData().then(() => {
             window.app.renderHome();
         });

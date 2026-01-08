@@ -4,7 +4,6 @@
 let state = {
     rules: [],
     favorites: [],
-    timeslots: [],
     folders: [],
     wizard: {
         step: 1,
@@ -39,10 +38,6 @@ const elements = {
     // Favorites
     favoritesList: document.getElementById('favoritesListAdmin'),
     addFavouriteBtn: document.getElementById('addFavouriteBtn'),
-
-    // Timeslots
-    timeslotsList: document.getElementById('timeslotsList'),
-    addTimeslotBtn: document.getElementById('addTimeslotBtn'),
 
     // Folders
     foldersList: document.getElementById('foldersList'),
@@ -84,7 +79,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupWizard();
     renderRules();
     renderFavorites();
-    renderTimeslots();
     renderFolders();
     updateStorageInfo();
 });
@@ -103,6 +97,20 @@ async function loadData() {
     state.favorites = await Storage.getFavorites() || [];
     state.folders = await Storage.getFolders() || [];
     
+    // Migrate old folders with timeslotId to new timeslot object
+    const timeslots = await Storage.getTimeslots() || [];
+    state.folders.forEach(folder => {
+        if (folder.timeslotId && !folder.timeslot) {
+            const slot = timeslots.find(s => s.id === folder.timeslotId);
+            if (slot) {
+                folder.timeslot = { days: slot.days, startTime: slot.startTime, endTime: slot.endTime };
+            }
+            delete folder.timeslotId;
+        }
+    });
+    // Save migrated folders
+    await Storage.saveFolders(state.folders);
+    
     // Create default folder if none exist
     if (state.folders.length === 0) {
         state.folders = [{
@@ -110,12 +118,73 @@ async function loadData() {
             name: 'My Favourite',
             color: '#007AFF',
             favoritesCount: 0,
+            timeslot: null, // No specific timeslot by default
             isDefault: true
         }];
         await Storage.saveFolders(state.folders);
     }
     
     updateFolderCounts();
+}
+
+function timeslotsOverlap(slot1, slot2) {
+    if (!slot1 || !slot2) return false;
+    const days1 = new Set(slot1.days);
+    const days2 = new Set(slot2.days);
+    const commonDays = [...days1].filter(day => days2.has(day));
+    if (commonDays.length === 0) return false;
+    // If they share days, check time overlap
+    const start1 = slot1.startTime;
+    const end1 = slot1.endTime;
+    const start2 = slot2.startTime;
+    const end2 = slot2.endTime;
+    return start1 < end2 && start2 < end1;
+}
+function generateTimeOptions(selectedValue) {
+    const times = [];
+    for (let hour = 0; hour < 24; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+            const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+            times.push(time);
+        }
+    }
+    let options = times.map(time => `<option value="${time}" ${time === selectedValue ? 'selected' : ''}>${time}</option>`).join('');
+    options += `<option value="custom" ${selectedValue === 'custom' ? 'selected' : ''}>Custom...</option>`;
+    return options;
+}
+
+function timeToAngle(time) {
+    const [hour, minute] = time.split(':').map(Number);
+    const angle = ((hour % 12) + minute / 60) * 30;
+    return angle;
+}
+
+function updateClockMarkers() {
+    const startTime = document.getElementById('folderStartTime').value;
+    const endTime = document.getElementById('folderEndTime').value;
+    const startAngle = timeToAngle(startTime);
+    const endAngle = timeToAngle(endTime);
+    const startMarker = document.getElementById('startMarker');
+    const endMarker = document.getElementById('endMarker');
+    if (startMarker) startMarker.style.transform = `translateX(-50%) rotate(${startAngle}deg)`;
+    if (endMarker) endMarker.style.transform = `translateX(-50%) rotate(${endAngle}deg)`;
+}
+
+function populatePerDayTimes() {
+    const container = modal.querySelector('.per-day-times');
+    const checkedDays = Array.from(modal.querySelectorAll('#folderDaysContainer input:checked')).map(cb => cb.value);
+    container.innerHTML = checkedDays.map(day => `
+        <div class="per-day-item">
+            <span class="day-name">${day.charAt(0).toUpperCase() + day.slice(1)}</span>
+            <select class="per-day-start" data-day="${day}">
+                ${generateTimeOptions(currentTimeslot && currentTimeslot.perday && currentTimeslot.perday[day] ? currentTimeslot.perday[day].start : '08:00')}
+            </select>
+            <span class="time-separator">to</span>
+            <select class="per-day-end" data-day="${day}">
+                ${generateTimeOptions(currentTimeslot && currentTimeslot.perday && currentTimeslot.perday[day] ? currentTimeslot.perday[day].end : '18:00')}
+            </select>
+        </div>
+    `).join('');
 }
 
 function openRuleWizard() {
@@ -151,9 +220,6 @@ function setupEventListeners() {
         // Open the popup
         chrome.action.openPopup();
     });
-
-    // Timeslots
-    elements.addTimeslotBtn.addEventListener('click', () => openTimeslotEditor());
 
     // Folders
     elements.addFolderBtn.addEventListener('click', () => openFolderEditor());
@@ -691,247 +757,6 @@ async function handleDeleteFavorite(id) {
     }
 }
 
-// --- TIMESLOT MANAGEMENT ---
-
-function renderTimeslots() {
-    const container = elements.timeslotsList;
-    
-    if (state.timeslots.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <p>No timeslots defined</p>
-                <small>Timeslots define when your favorites should show ETAs in the popup.</small>
-            </div>
-        `;
-        return;
-    }
-
-    container.innerHTML = state.timeslots.map(slot => {
-        const daysDisplay = slot.days ? slot.days.map(day => 
-            day.charAt(0).toUpperCase() + day.slice(1)
-        ).join(', ') : 'All Days';
-        
-        return `
-        <div class="list-item">
-            <div class="list-content">
-                <div class="list-title">${escapeHtml(slot.name)}</div>
-                <div class="list-subtitle">${daysDisplay} • ${slot.startTime} - ${slot.endTime}</div>
-            </div>
-            <div class="list-trailing">
-                <button class="btn-secondary timeslot-edit-btn" data-timeslot-id="${slot.id}">Edit</button>
-                ${!slot.isDefault ? `<button class="btn-danger timeslot-delete-btn" data-timeslot-id="${slot.id}">Delete</button>` : ''}
-            </div>
-        </div>
-    `}).join('');
-
-    // Attach event listeners
-    container.querySelectorAll('.timeslot-edit-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const slotId = btn.dataset.timeslotId;
-            openTimeslotEditor(slotId);
-        });
-    });
-
-    container.querySelectorAll('.timeslot-delete-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const slotId = btn.dataset.timeslotId;
-            deleteTimeslot(slotId);
-        });
-    });
-}
-
-function openTimeslotEditor(slotId = null) {
-    const slot = slotId ? state.timeslots.find(s => s.id === slotId) : null;
-    
-    const name = slot ? slot.name : '';
-    const startTime = slot ? slot.startTime : '08:00';
-    const endTime = slot ? slot.endTime : '09:00';
-    const selectedDays = slot ? (slot.days || []) : ['monday'];
-    
-    const title = slot ? 'Edit Timeslot' : 'Add Timeslot';
-    const isDefault = slot ? slot.isDefault : false;
-    
-    const daysOfWeek = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    
-    // Create modal HTML using options.css structure
-    const modalHtml = `
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">${title}</h3>
-                <button class="close-btn" id="timeslotCloseBtn">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Name:</label>
-                    <input type="text" id="timeslotName" value="${escapeHtml(name)}" placeholder="e.g., Work Commute" ${isDefault ? 'readonly' : ''}>
-                </div>
-                <div class="form-group">
-                    <label>Days of Week:</label>
-                    <div class="days-selector">
-                        ${daysOfWeek.map(day => `
-                            <label class="day-checkbox">
-                                <input type="checkbox" value="${day}" ${selectedDays.includes(day) ? 'checked' : ''} ${isDefault ? 'disabled' : ''}>
-                                ${day.charAt(0).toUpperCase() + day.slice(1)}
-                            </label>
-                        `).join('')}
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>Start Time:</label>
-                    <input type="time" id="timeslotStart" value="${startTime}">
-                </div>
-                <div class="form-group">
-                    <label>End Time:</label>
-                    <input type="time" id="timeslotEnd" value="${endTime}">
-                </div>
-                ${isDefault ? '<div class="form-note">This is a default timeslot. Only time range can be edited.</div>' : ''}
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" id="timeslotCancelBtn">Cancel</button>
-                <button class="btn-primary" id="timeslotSaveBtn" data-slot-id="${slotId || ''}">Save</button>
-            </div>
-        </div>
-    `;
-    
-    const modal = document.createElement('div');
-    modal.id = 'timeslotModal';
-    modal.className = 'modal';
-    modal.innerHTML = modalHtml;
-    document.body.appendChild(modal);
-    
-    // Show modal
-    modal.style.display = 'flex';
-    
-    // Attach event listeners
-    modal.querySelector('#timeslotCloseBtn').addEventListener('click', closeTimeslotEditor);
-    modal.querySelector('#timeslotCancelBtn').addEventListener('click', closeTimeslotEditor);
-    modal.querySelector('#timeslotSaveBtn').addEventListener('click', () => {
-        const saveBtn = modal.querySelector('#timeslotSaveBtn');
-        const slotId = saveBtn.dataset.slotId;
-        if (slotId) {
-            updateTimeslot(slotId);
-        } else {
-            createTimeslot();
-        }
-    });
-    
-    // Focus on appropriate input
-    setTimeout(() => {
-        if (!isDefault) {
-            modal.querySelector('#timeslotName').focus();
-        } else {
-            modal.querySelector('#timeslotStart').focus();
-        }
-    }, 100);
-}
-
-function closeTimeslotEditor() {
-    const modal = document.getElementById('timeslotModal');
-    if (modal) {
-        modal.style.display = 'none';
-        modal.remove();
-    }
-}
-
-async function createTimeslot() {
-    const name = document.getElementById('timeslotName').value.trim();
-    const startTime = document.getElementById('timeslotStart').value;
-    const endTime = document.getElementById('timeslotEnd').value;
-    
-    // Get selected days
-    const selectedDays = Array.from(document.querySelectorAll('.days-selector input:checked')).map(cb => cb.value);
-    
-    if (!name || !startTime || !endTime || selectedDays.length === 0) {
-        alert('Please fill in all fields and select at least one day');
-        return;
-    }
-    
-    // Check for duplicate timeslots (same days and overlapping time)
-    const hasConflict = state.timeslots.some(slot => {
-        if (!slot.days) return false;
-        const overlappingDays = slot.days.filter(day => selectedDays.includes(day));
-        if (overlappingDays.length === 0) return false;
-        
-        // Check time overlap
-        const slotStart = slot.startTime;
-        const slotEnd = slot.endTime;
-        return (startTime < slotEnd && endTime > slotStart);
-    });
-    
-    if (hasConflict) {
-        alert('This timeslot conflicts with an existing one. Timeslots cannot overlap on the same days.');
-        return;
-    }
-    
-    const newSlot = {
-        id: Date.now().toString(),
-        name,
-        days: selectedDays,
-        startTime,
-        endTime
-    };
-    
-    state.timeslots.push(newSlot);
-    await Storage.saveTimeslots(state.timeslots);
-    renderTimeslots();
-    closeTimeslotEditor();
-    chrome.runtime.sendMessage({ action: 'refreshTimeslots' });
-}
-
-async function updateTimeslot(id) {
-    const name = document.getElementById('timeslotName').value.trim();
-    const startTime = document.getElementById('timeslotStart').value;
-    const endTime = document.getElementById('timeslotEnd').value;
-    
-    // Get selected days
-    const selectedDays = Array.from(document.querySelectorAll('.days-selector input:checked')).map(cb => cb.value);
-    
-    if (!name || !startTime || !endTime || selectedDays.length === 0) {
-        alert('Please fill in all fields and select at least one day');
-        return;
-    }
-    
-    const slot = state.timeslots.find(s => s.id === id);
-    if (slot) {
-        // Check for conflicts with other timeslots (excluding this one)
-        const hasConflict = state.timeslots.some(otherSlot => {
-            if (otherSlot.id === id || !otherSlot.days) return false;
-            const overlappingDays = otherSlot.days.filter(day => selectedDays.includes(day));
-            if (overlappingDays.length === 0) return false;
-            
-            // Check time overlap
-            const slotStart = otherSlot.startTime;
-            const slotEnd = otherSlot.endTime;
-            return (startTime < slotEnd && endTime > slotStart);
-        });
-        
-        if (hasConflict) {
-            alert('This timeslot conflicts with an existing one. Timeslots cannot overlap on the same days.');
-            return;
-        }
-        
-        slot.name = name;
-        if (!slot.isDefault) {
-            slot.days = selectedDays;
-        }
-        slot.startTime = startTime;
-        slot.endTime = endTime;
-        await Storage.saveTimeslots(state.timeslots);
-        renderTimeslots();
-        closeTimeslotEditor();
-        chrome.runtime.sendMessage({ action: 'refreshTimeslots' });
-    }
-}
-
-async function deleteTimeslot(id) {
-    if (confirm('Delete this timeslot?')) {
-        state.timeslots = state.timeslots.filter(s => s.id !== id);
-        await Storage.saveTimeslots(state.timeslots);
-        renderTimeslots();
-        chrome.runtime.sendMessage({ action: 'refreshTimeslots' });
-    }
-}
-
 // --- FOLDER MANAGEMENT ---
 
 function renderFolders() {
@@ -954,7 +779,7 @@ function renderFolders() {
                 <div class="folder-info">
                     <div class="folder-name">${escapeHtml(folder.name)}</div>
                     <div class="folder-count">${folder.favoritesCount || 0} favorites</div>
-                    ${folder.timeslotId ? `<div class="folder-timeslot">Timeslot: ${state.timeslots.find(slot => slot.id === folder.timeslotId)?.name || folder.timeslotId}</div>` : '<div class="folder-timeslot">No specific timeslot</div>'}
+                    ${folder.timeslot && folder.timeslot.days ? `<div class="folder-timeslot">Timeslot: ${folder.timeslot.days.join(', ')} ${folder.timeslot.startTime} - ${folder.timeslot.endTime}</div>` : '<div class="folder-timeslot">No specific timeslot</div>'}
                 </div>
                 ${!folder.isDefault ? `
                 <div class="folder-actions">
@@ -987,14 +812,14 @@ function openFolderEditor(folderId = null) {
     
     const name = folder ? folder.name : '';
     const color = folder ? folder.color : '#007AFF';
-    const timeslotId = folder ? folder.timeslotId || '' : '';
+    const currentTimeslot = folder ? folder.timeslot : null;
     
-    const timeslotOptions = [
-        `<option value="">No specific time</option>`,
-        ...state.timeslots.map(slot => 
-            `<option value="${slot.id}" ${timeslotId === slot.id ? 'selected' : ''}>${escapeHtml(slot.name)}</option>`
-        )
-    ].join('');
+    const daysCheckboxes = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => `
+        <label class="day-checkbox">
+            <input type="checkbox" value="${day}" ${currentTimeslot && currentTimeslot.days && currentTimeslot.days.includes(day) ? 'checked' : ''}>
+            <span class="day-label">${day.charAt(0).toUpperCase() + day.slice(1)}</span>
+        </label>
+    `).join('');
     
     const title = folder ? 'Edit Folder' : 'Add Folder';
     
@@ -1015,12 +840,36 @@ function openFolderEditor(folderId = null) {
                     <input type="color" id="folderColor" value="${color}">
                 </div>
                 <div class="form-group">
-                    <label>Timeslot:</label>
-                    <select id="folderTimeslot" class="form-select">
-                        ${timeslotOptions}
-                    </select>
-                    <small class="form-help">Favorites in this folder will appear during this timeslot</small>
+                    <label>Days:</label>
+                    <div id="folderDaysContainer">
+                        ${daysCheckboxes}
+                    </div>
                 </div>
+                <div class="form-group">
+                    <label><input type="checkbox" id="usePerDayTimes"> Use different times per day</label>
+                </div>
+                <div id="perDayTimesContainer" style="display:none;">
+                    <div class="per-day-times">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+                <div class="form-group" id="singleTimeGroup">
+                    <label>Time Range:</label>
+                    <div class="time-range-selector">
+                        <div class="time-inputs">
+                            <select id="folderStartTime">
+                                ${generateTimeOptions(currentTimeslot ? currentTimeslot.startTime : '08:00')}
+                            </select>
+                            <input type="time" id="customStartTime" style="display:none; margin-left: 10px;">
+                            <span class="time-separator">to</span>
+                            <select id="folderEndTime">
+                                ${generateTimeOptions(currentTimeslot ? currentTimeslot.endTime : '18:00')}
+                            </select>
+                            <input type="time" id="customEndTime" style="display:none; margin-left: 10px;">
+                        </div>
+                    </div>
+                </div>
+                <small class="form-help">Favorites in this folder will appear during the selected days and time range</small>
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" id="folderCancelBtn">Cancel</button>
@@ -1038,6 +887,9 @@ function openFolderEditor(folderId = null) {
     // Show modal
     modal.style.display = 'flex';
     
+    // Update clock markers
+    updateClockMarkers();
+    
     // Attach event listeners
     modal.querySelector('#folderCloseBtn').addEventListener('click', closeFolderEditor);
     modal.querySelector('#folderCancelBtn').addEventListener('click', closeFolderEditor);
@@ -1048,6 +900,40 @@ function openFolderEditor(folderId = null) {
             updateFolder(folderId);
         } else {
             createFolder();
+        }
+    });
+    
+    // Update clock markers on time change
+    modal.querySelector('#folderStartTime').addEventListener('change', updateClockMarkers);
+    modal.querySelector('#folderEndTime').addEventListener('change', updateClockMarkers);
+    
+    // Toggle custom time inputs
+    function toggleCustomTime(selectId, inputId) {
+        const select = modal.querySelector(selectId);
+        const input = modal.querySelector(inputId);
+        select.addEventListener('change', function() {
+            if (this.value === 'custom') {
+                input.style.display = 'inline-block';
+                input.focus();
+            } else {
+                input.style.display = 'none';
+            }
+        });
+    }
+    toggleCustomTime('#folderStartTime', '#customStartTime');
+    toggleCustomTime('#folderEndTime', '#customEndTime');
+    
+    // Toggle per-day times
+    modal.querySelector('#usePerDayTimes').addEventListener('change', function() {
+        const singleGroup = modal.querySelector('#singleTimeGroup');
+        const perDayContainer = modal.querySelector('#perDayTimesContainer');
+        if (this.checked) {
+            singleGroup.style.display = 'none';
+            perDayContainer.style.display = 'block';
+            populatePerDayTimes();
+        } else {
+            singleGroup.style.display = 'block';
+            perDayContainer.style.display = 'none';
         }
     });
     
@@ -1068,19 +954,43 @@ function closeFolderEditor() {
 async function createFolder() {
     const name = document.getElementById('folderName').value.trim();
     const color = document.getElementById('folderColor').value;
-    const timeslotId = document.getElementById('folderTimeslot').value;
+    const days = Array.from(document.querySelectorAll('#folderDaysContainer input:checked')).map(cb => cb.value);
+    const usePerDay = document.getElementById('usePerDayTimes').checked;
     
     if (!name) {
         alert('Please enter a folder name');
         return;
     }
     
+    let timeslot = null;
+    if (days.length > 0) {
+        if (usePerDay) {
+            timeslot = { perday: {} };
+            days.forEach(day => {
+                const startSelect = document.querySelector(`.per-day-start[data-day="${day}"]`);
+                const endSelect = document.querySelector(`.per-day-end[data-day="${day}"]`);
+                const start = startSelect.value === 'custom' ? document.getElementById('customStartTime').value : startSelect.value;
+                const end = endSelect.value === 'custom' ? document.getElementById('customEndTime').value : endSelect.value;
+                timeslot.perday[day] = { start, end };
+            });
+        } else {
+            const startSelect = document.getElementById('folderStartTime');
+            const endSelect = document.getElementById('folderEndTime');
+            const startTime = startSelect.value === 'custom' ? document.getElementById('customStartTime').value : startSelect.value;
+            const endTime = endSelect.value === 'custom' ? document.getElementById('customEndTime').value : endSelect.value;
+            timeslot = { days, startTime, endTime };
+        }
+    }
+    
+    // Check for overlapping timeslots (simplified for now)
+    // TODO: Implement overlap check for perday
+    
     const newFolder = {
         id: Date.now().toString(),
         name,
         color,
         favoritesCount: 0,
-        timeslotId
+        timeslot
     };
     
     state.folders.push(newFolder);
@@ -1095,18 +1005,30 @@ async function createFolder() {
 async function updateFolder(id) {
     const name = document.getElementById('folderName').value.trim();
     const color = document.getElementById('folderColor').value;
-    const timeslotId = document.getElementById('folderTimeslot').value;
+    const days = Array.from(document.querySelectorAll('#folderDaysContainer input:checked')).map(cb => cb.value);
+    const startTime = document.getElementById('folderStartTime').value;
+    const endTime = document.getElementById('folderEndTime').value;
     
     if (!name) {
         alert('Please enter a folder name');
         return;
     }
     
+    const timeslot = days.length > 0 ? { days, startTime, endTime } : null;
+    
+    // Check for overlapping timeslots with other folders
+    for (const f of state.folders) {
+        if (f.id !== id && f.timeslot && timeslotsOverlap(timeslot, f.timeslot)) {
+            alert('This timeslot overlaps with another folder. Please choose a different time range.');
+            return;
+        }
+    }
+    
     const folder = state.folders.find(f => f.id === id);
     if (folder) {
         folder.name = name;
         folder.color = color;
-        folder.timeslotId = timeslotId;
+        folder.timeslot = timeslot;
         await Storage.saveFolders(state.folders);
         renderFolders();
         closeFolderEditor();

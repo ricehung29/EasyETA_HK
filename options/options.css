@@ -870,3 +870,410 @@ body.dark-mode .toggle-slider {
     background-color: #1C1C1E;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
+
+/* Day checkboxes styling */
+#folderDaysContainer {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.day-checkbox {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    background: #f8f9fa;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    font-weight: 500;
+    position: relative;
+}
+
+.day-checkbox:hover {
+    border-color: var(--primary-color);
+    background: #f0f8ff;
+}
+
+.day-checkbox input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.day-checkbox input[type="checkbox"]:checked ~ .day-label {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.day-checkbox input[type="checkbox"]:checked {
+    background: var(--primary-color);
+}
+
+.day-checkbox:has(input[type="checkbox"]:checked) {
+    border-color: var(--primary-color);
+    background: #e6f3ff;
+}
+
+.day-checkbox:has(input[type="checkbox"]:checked)::before {
+    content: '✓';
+    position: absolute;
+    right: 8px;
+    color: var(--primary-color);
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.day-label {
+    margin-left: 8px;
+    color: #666;
+    transition: color 0.2s ease;
+}
+
+/* Dark mode for day checkboxes */
+body.dark-mode .day-checkbox {
+    border-color: #48484A;
+    background: #2C2C2E;
+    color: #CCC;
+}
+
+body.dark-mode .day-checkbox:hover {
+    border-color: var(--primary-color);
+    background: #3A3A3C;
+}
+
+body.dark-mode .day-checkbox:has(input[type="checkbox"]:checked) {
+    border-color: var(--primary-color);
+    background: #1C3A5E;
+}
+
+body.dark-mode .day-label {
+    color: #CCC;
+}
+
+body.dark-mode .day-checkbox:has(input[type="checkbox"]:checked) .day-label {
+    color: var(--primary-color);
+}
+
+/* Cartoon Clock Time Inputs */
+input[type="time"] {
+    position: relative;
+    padding: 12px 16px;
+    border: 3px solid #FFD700;
+    border-radius: 50px;
+    background: linear-gradient(135deg, #FFF8DC 0%, #FFE4B5 100%);
+    font-size: 16px;
+    font-weight: bold;
+    color: #8B4513;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1), inset 0 2px 4px rgba(255,255,255,0.5);
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+input[type="time"]:hover {
+    border-color: #FFA500;
+    background: linear-gradient(135deg, #FFFACD 0%, #FFEFD5 100%);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.15), inset 0 2px 4px rgba(255,255,255,0.7);
+    transform: translateY(-2px);
+}
+
+input[type="time"]:focus {
+    outline: none;
+    border-color: #FF6347;
+    box-shadow: 0 8px 16px rgba(255,99,71,0.3), inset 0 2px 4px rgba(255,255,255,0.7);
+    transform: translateY(-2px) scale(1.02);
+}
+
+/* Clock face styling */
+input[type="time"]::before {
+    content: '🕐';
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 18px;
+    pointer-events: none;
+}
+
+/* Hide the default time picker arrow */
+input[type="time"]::-webkit-calendar-picker-indicator {
+    display: none;
+}
+
+/* Dark mode for time inputs */
+body.dark-mode input[type="time"] {
+    border-color: #FFD700;
+    background: linear-gradient(135deg, #4A4A4A 0%, #6A6A6A 100%);
+    color: #FFE4B5;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.1);
+}
+
+body.dark-mode input[type="time"]:hover {
+    border-color: #FFA500;
+    background: linear-gradient(135deg, #5A5A5A 0%, #7A7A7A 100%);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.2);
+}
+
+body.dark-mode input[type="time"]:focus {
+    border-color: #FF6347;
+    box-shadow: 0 8px 16px rgba(255,99,71,0.4), inset 0 2px 4px rgba(255,255,255,0.2);
+}
+
+/* Improved Name Input Styling */
+#folderName {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #E0E0E0;
+    border-radius: 12px;
+    background: #FFFFFF;
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+#folderName:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 8px rgba(0,123,255,0.2);
+    background: #F8F9FA;
+}
+
+#folderName::placeholder {
+    color: #999;
+    font-style: italic;
+}
+
+/* Dark mode for name input */
+body.dark-mode #folderName {
+    border-color: #48484A;
+    background: #2C2C2E;
+    color: #FFFFFF;
+}
+
+body.dark-mode #folderName:focus {
+    border-color: var(--primary-color);
+    background: #3A3A3C;
+}
+
+/* Improved Color Picker Styling */
+#folderColor {
+    width: 60px;
+    height: 40px;
+    border: 2px solid #E0E0E0;
+    border-radius: 8px;
+    background: #FFFFFF;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+#folderColor:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 8px rgba(0,123,255,0.2);
+    transform: scale(1.05);
+}
+
+/* Dark mode for color picker */
+body.dark-mode #folderColor {
+    border-color: #48484A;
+    background: #2C2C2E;
+}
+
+/* Animated Clock Component */
+.time-range-selector {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-top: 10px;
+}
+
+.animated-clock {
+    width: 120px;
+    height: 120px;
+    position: relative;
+}
+
+.clock-face {
+    width: 100%;
+    height: 100%;
+    border: 4px solid #8B4513;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #FFF8DC 0%, #FFE4B5 100%);
+    position: relative;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2), inset 0 2px 4px rgba(255,255,255,0.5);
+}
+
+.clock-numbers {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+}
+
+.clock-numbers .number {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform-origin: 0px 45px;
+    transform: rotate(var(--rotation)) translateX(-50%);
+    font-size: 14px;
+    font-weight: bold;
+    color: #8B4513;
+}
+
+.clock-hands {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.hour-hand, .minute-hand, .second-hand {
+    position: absolute;
+    transform-origin: bottom center;
+    bottom: 50%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.hour-hand {
+    width: 4px;
+    height: 30px;
+    background: #8B4513;
+    border-radius: 2px;
+    animation: hour-hand 43200s linear infinite;
+}
+
+.minute-hand {
+    width: 3px;
+    height: 45px;
+    background: #654321;
+    border-radius: 1.5px;
+    animation: minute-hand 3600s linear infinite;
+}
+
+.second-hand {
+    width: 2px;
+    height: 50px;
+    background: #FF6347;
+    border-radius: 1px;
+    animation: second-hand 60s linear infinite;
+}
+
+.clock-center {
+    width: 8px;
+    height: 8px;
+    background: #8B4513;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+@keyframes hour-hand {
+    0% { transform: translateX(-50%) rotate(0deg); }
+    100% { transform: translateX(-50%) rotate(360deg); }
+}
+
+@keyframes minute-hand {
+    0% { transform: translateX(-50%) rotate(0deg); }
+    100% { transform: translateX(-50%) rotate(360deg); }
+}
+
+@keyframes second-hand {
+    0% { transform: translateX(-50%) rotate(0deg); }
+    100% { transform: translateX(-50%) rotate(360deg); }
+}
+
+.timeslot-markers {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.start-marker, .end-marker {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    transform-origin: 0px 45px;
+    bottom: 50%;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.start-marker {
+    background: #4CAF50;
+    box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
+}
+
+.end-marker {
+    background: #F44336;
+    box-shadow: 0 0 6px rgba(244, 67, 54, 0.6);
+}
+
+.time-inputs {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.time-separator {
+    font-weight: bold;
+    color: #666;
+}
+
+/* Dropdown styling */
+#folderStartTime, #folderEndTime {
+    padding: 8px 12px;
+    border: 2px solid #E0E0E0;
+    border-radius: 8px;
+    background: #FFFFFF;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+#folderStartTime:focus, #folderEndTime:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+}
+
+/* Dark mode for dropdowns */
+body.dark-mode #folderStartTime, body.dark-mode #folderEndTime {
+    border-color: #48484A;
+    background: #2C2C2E;
+    color: #FFFFFF;
+}
+
+/* Dark mode for clock */
+body.dark-mode .clock-face {
+    border-color: #FFD700;
+    background: linear-gradient(135deg, #4A4A4A 0%, #6A6A6A 100%);
+}
+
+body.dark-mode .clock-numbers .number {
+    color: #FFE4B5;
+}
+
+body.dark-mode .hour-hand, body.dark-mode .clock-center {
+    background: #FFD700;
+}
+
+body.dark-mode .minute-hand {
+    background: #FFA500;
+}
+
+body.dark-mode .second-hand {
+    background: #FF6347;
+}
