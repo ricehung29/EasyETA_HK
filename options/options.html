@@ -18,11 +18,7 @@
 
         <!-- Navigation Tabs -->
         <nav class="nav-tabs">
-            <button class="nav-tab active" data-tab="rules">
-                <span class="nav-icon">🔔</span>
-                <span class="nav-label">Rules</span>
-            </button>
-            <button class="nav-tab" data-tab="favorites">
+            <button class="nav-tab active" data-tab="favorites">
                 <span class="nav-icon">⭐</span>
                 <span class="nav-label">Favorites</span>
             </button>
@@ -42,48 +38,23 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Rules Tab -->
-            <section id="rulesTab" class="tab-pane active">
+            <!-- Favorites Tab -->
+             <section id="favoritesTab" class="tab-pane active">
+                <!-- Combined Folder and Favorites Management -->
                 <div class="section-header">
-                    <span class="section-title">Notification Rules</span>
-                    <button id="addRuleBtn" class="btn-primary">Add Rule</button>
-                </div>
-                
-                <div class="section-group">
-                    <div id="rulesList">
-                        <div class="empty-state">
-                            <p>No rules created yet</p>
-                            <small>Create rules to get automated notifications for your routes.</small>
-                        </div>
+                    <span class="section-title">Folders & Favorites</span>
+                    <div class="header-actions">
+                        <button id="manageFolderPriorityBtn" class="btn-secondary">Priority Order</button>
+                        <button id="addFolderBtn" class="btn-secondary">Add Folder</button>
+                        <button id="addFavouriteBtn" class="btn-primary">Add Favourite</button>
                     </div>
                 </div>
-            </section>
-
-            <!-- Favorites Tab -->
-             <section id="favoritesTab" class="tab-pane">
-                <!-- Folder Management -->
-                <div class="section-header">
-                    <span class="section-title">Folders</span>
-                    <button id="addFolderBtn" class="btn-primary">Add Folder</button>
-                </div>
                 <div class="section-group">
-                    <div id="foldersList">
+                    <div id="foldersAndFavoritesList">
                         <div class="empty-state">
-                            <p>No folders created yet</p>
+                            <p>No folders or favorites created yet</p>
                             <small>Create folders to organize your favorites into categories.</small>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Favorites Management -->
-                <div class="section-header">
-                    <span class="section-title">Managed Favorites</span>
-                    <button id="addFavouriteBtn" class="btn-primary">Add Favourite</button>
-                </div>
-                <div class="section-group">
-                    <div id="favoritesListAdmin">
-                         <!-- Populated by JS -->
-                         <div class="empty-state">Loading...</div>
                     </div>
                 </div>
             </section>
@@ -135,7 +106,7 @@
                     <div class="list-item" id="clear-data-btn">
                         <div class="list-content">
                             <div class="list-title" style="color: var(--danger-color);">Reset All Data</div>
-                            <div class="list-subtitle">Remove all favorites, rules, and history</div>
+                            <div class="list-subtitle">Remove all favorites and history</div>
                         </div>
                     </div>
                 </div>
@@ -150,7 +121,7 @@
                     <div class="list-item">
                         <div class="list-content">
                             <div class="list-title">Export Data</div>
-                            <div class="list-subtitle">Save your favorites and rules to a file</div>
+                            <div class="list-subtitle">Save your favorites to a file</div>
                         </div>
                         <div class="list-trailing">
                              <button id="exportAllBtn" class="btn-secondary">Export JSON</button>
@@ -176,7 +147,7 @@
                      <div class="list-item">
                         <div class="list-content">
                             <div class="list-title" style="color: var(--danger-color);">Clear All Data</div>
-                            <div class="list-subtitle">Remove all favorites, rules, and history</div>
+                            <div class="list-subtitle">Remove all favorites and history</div>
                         </div>
                         <div class="list-trailing">
                              <button id="clearAllBtn" class="btn-danger">Clear Everything</button>

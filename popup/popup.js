@@ -9,6 +9,7 @@ class App {
         this.searchDebounce = null;
         this.activeEtaIntervals = []; // To clear intervals when leaving view
         this.currentFavTab = 'all'; // Current favorite tab
+        this.editFavorite = null; // For editing existing favorites
         
         this.init();
     }
@@ -17,6 +18,7 @@ class App {
         this.setupNavigation();
         this.setupSearch();
         this.setupFavorites();
+        this.setupSectionToggles();
         this.setupDarkMode();
         await this.loadData();
         this.renderHome();
@@ -26,9 +28,39 @@ class App {
         try {
             this.favorites = await Storage.getFavorites() || [];
             this.folders = await Storage.getFolders() || [];
+            
+            // Check if we're editing a favorite
+            const editData = await chrome.storage.local.get('editFavorite');
+            if (editData.editFavorite) {
+                this.editFavorite = editData.editFavorite;
+                // Clear the edit data
+                await chrome.storage.local.remove('editFavorite');
+                // Navigate to search to allow editing
+                this.navigateTo('view-search');
+            }
+            
             // Pre-warm cache if needed
         } catch (e) {
             console.error("Load data error", e);
+        }
+    }
+
+    getFolderTimeslotLabel(folderId) {
+        if (!folderId) return '';
+        const folder = this.folders.find(f => f.id === folderId);
+        if (!folder || !folder.timeslot) return '';
+        
+        if (folder.timeslot.perday) {
+            // For per-day, show current day's time if available
+            const now = new Date();
+            const currentDay = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase();
+            const dayTimes = folder.timeslot.perday[currentDay];
+            if (dayTimes) {
+                return `${dayTimes.start}-${dayTimes.end}`;
+            }
+            return 'Per-day';
+        } else {
+            return `${folder.timeslot.startTime}-${folder.timeslot.endTime}`;
         }
     }
 
@@ -37,11 +69,21 @@ class App {
         const currentDay = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase(); // 'monday', etc.
         const currentTime = now.toTimeString().slice(0, 5); // HH:MM
 
-        return this.folders.filter(folder => {
-            if (!folder.timeslot || !folder.timeslot.days) return false;
-            if (!folder.timeslot.days.includes(currentDay)) return false;
-            return currentTime >= folder.timeslot.startTime && currentTime <= folder.timeslot.endTime;
+        const activeFolders = this.folders.filter(folder => {
+            if (!folder.timeslot) return false;
+            if (folder.timeslot.perday) {
+                const dayTimes = folder.timeslot.perday[currentDay];
+                if (!dayTimes) return false;
+                return currentTime >= dayTimes.start && currentTime <= dayTimes.end;
+            } else if (folder.timeslot.days) {
+                if (!folder.timeslot.days.includes(currentDay)) return false;
+                return currentTime >= folder.timeslot.startTime && currentTime <= folder.timeslot.endTime;
+            }
+            return false;
         });
+
+        // Sort by priority (lower number = higher priority)
+        return activeFolders.sort((a, b) => (a.priority || 999) - (b.priority || 999));
     }
 
     setupNavigation() {
@@ -93,6 +135,17 @@ class App {
             else item.classList.remove('active');
         });
 
+        // Handle edit mode for search view
+        if (viewId === 'view-search' && this.editFavorite) {
+            // Pre-populate search with current favorite data
+            const searchInput = document.getElementById('route-search-input');
+            if (searchInput) {
+                searchInput.value = this.editFavorite.route;
+                // Trigger search
+                this.performSearch(this.editFavorite.route);
+            }
+        }
+
         // Store history for simple back
         if (viewId !== 'view-details') {
             this.previousView = viewId;
@@ -138,8 +191,8 @@ class App {
         this.renderFavoriteTabs();
         
         // Ensure currentFavTab is valid
-        const activeFolders = this.getCurrentActiveFolders();
-        const validTabs = activeFolders.length > 0 ? activeFolders.map(f => f.id) : ['all'];
+        const currentActiveFolders = this.getCurrentActiveFolders();
+        const validTabs = currentActiveFolders.length > 0 ? currentActiveFolders.map(f => f.id) : ['all'];
         if (!validTabs.includes(this.currentFavTab)) {
             this.currentFavTab = validTabs[0];
         }
@@ -158,17 +211,49 @@ class App {
         if (filteredFavorites.length === 0) {
             favList.innerHTML = `<div class="list-item"><div class="list-content"><div class="list-subtitle">No favorites in this category</div></div></div>`;
         } else {
-            favList.innerHTML = filteredFavorites.map(fav => `
-                <div class="list-item favorite-item" data-id="${fav.id}">
-                    <div class="list-content">
-                        <div class="list-title">${fav.route} <span class="badge badge-primary">To ${fav.dest || '...'}</span></div>
-                        <div class="list-subtitle">${fav.stopName} ${this.getFolderTimeslotLabel(fav.folder) ? `<span class="badge">${this.getFolderTimeslotLabel(fav.folder)}</span>` : ''}</div>
+            // Render favorites with ETA data
+            const favoritePromises = filteredFavorites.map(async (fav) => {
+                let etaData = [];
+                try {
+                    // Get ETA data for this specific stop and route
+                    etaData = await API.getStopRouteETA(fav.stopId, fav.route, '1');
+                } catch (error) {
+                    console.warn(`Failed to get ETA for ${fav.route} at ${fav.stopId}:`, error);
+                }
+
+                // Format ETA display
+                let etaLines = [];
+                if (etaData.length === 0) {
+                    etaLines = [{ text: '*', isScheduled: true }];
+                } else {
+                    etaLines = etaData.slice(0, 3).map((eta) => {
+                        const etaText = eta.formatted?.display || '*';
+                        const isScheduled = etaText === '*' || !eta.eta;
+                        // Show remarks if they exist and are not "scheduled bus"
+                        let displayText = etaText;
+                        if (eta.rmk_tc && eta.rmk_tc !== '預定班次' && eta.rmk_tc !== 'scheduled bus') {
+                            displayText = `${etaText} (${eta.rmk_tc})`;
+                        }
+                        return { text: displayText, isScheduled };
+                    });
+                }
+
+                return `
+                    <div class="list-item favorite-item" data-id="${fav.id}">
+                        <div class="list-content">
+                            <div class="list-title">${fav.route} <span class="badge badge-primary">To ${fav.dest || '...'}</span></div>
+                            <div class="list-subtitle">${fav.stopName}</div>
+                        </div>
+                        <div class="eta-column">
+                            ${etaLines.map(line => `<div class="eta-line${line.isScheduled ? ' scheduled' : ''}">${line.text}</div>`).join('')}
+                        </div>
                     </div>
-                    <div class="list-trailing">
-                        ▶
-                    </div>
-                </div>
-            `).join('');
+                `;
+            });
+
+            // Wait for all ETA data to be fetched
+            const favoriteHtmls = await Promise.all(favoritePromises);
+            favList.innerHTML = favoriteHtmls.join('');
             
             // Add click listeners
             favList.querySelectorAll('.favorite-item').forEach(el => {
@@ -201,10 +286,15 @@ class App {
 
         // Render Recent
         const recents = await Storage.getRecentSearches() || [];
+        const recentSectionTitle = document.querySelector('.section-title[data-section="recent"]');
+        const isRecentExpanded = recentSectionTitle.classList.contains('expanded');
+        
         if (recents.length === 0) {
             recentList.innerHTML = `<div class="list-item"><div class="list-content"><div class="list-subtitle">No recent searches</div></div></div>`;
         } else {
-            recentList.innerHTML = recents.slice(0, 5).map(r => `
+            // Show all recents if expanded, otherwise show first 3
+            const displayCount = isRecentExpanded ? recents.length : 3;
+            recentList.innerHTML = recents.slice(0, displayCount).map(r => `
                 <div class="list-item recent-item" data-route="${r.route}">
                     <div class="list-content">
                         <div class="list-title">${r.route}</div>
@@ -213,12 +303,32 @@ class App {
                 </div>
             `).join('');
 
+            // Add "Show more" button if there are more items and not expanded
+            if (!isRecentExpanded && recents.length > 3) {
+                recentList.innerHTML += `
+                    <div class="list-item show-more-item">
+                        <div class="list-content">
+                            <div class="list-subtitle">Show ${recents.length - 3} more...</div>
+                        </div>
+                    </div>
+                `;
+            }
+
             recentList.querySelectorAll('.recent-item').forEach(el => {
                 el.addEventListener('click', () => {
                     this.navigateTo('view-search');
                     this.performSearch(el.dataset.route);
                 });
             });
+
+            // Add click handler for show more
+            const showMoreItem = recentList.querySelector('.show-more-item');
+            if (showMoreItem) {
+                showMoreItem.addEventListener('click', () => {
+                    recentSectionTitle.classList.add('expanded');
+                    this.renderHome(); // Re-render to show expanded state
+                });
+            }
         }
     }
 
@@ -243,6 +353,25 @@ class App {
                 
                 // Update current tab and re-render
                 this.currentFavTab = tab.dataset.favTab;
+                this.renderHome();
+            });
+        });
+    }
+
+    setupSectionToggles() {
+        const sectionTitles = document.querySelectorAll('.section-title[data-section]');
+        sectionTitles.forEach(title => {
+            title.addEventListener('click', () => {
+                const section = title.dataset.section;
+                const isExpanded = title.classList.contains('expanded');
+                
+                if (isExpanded) {
+                    title.classList.remove('expanded');
+                } else {
+                    title.classList.add('expanded');
+                }
+                
+                // Re-render home to update the display
                 this.renderHome();
             });
         });
@@ -275,19 +404,33 @@ class App {
         if (!folderId) return '';
         
         const folder = this.folders.find(f => f.id === folderId);
-        if (folder && folder.timeslot && folder.timeslot.days) {
-            return `${folder.timeslot.days.join(', ')} ${folder.timeslot.startTime}-${folder.timeslot.endTime}`;
+        if (folder && folder.timeslot) {
+            if (folder.timeslot.perday) {
+                return `Per-day: ${Object.entries(folder.timeslot.perday).map(([day, times]) => `${day.slice(0,3)}:${times.start}-${times.end}`).join(', ')}`;
+            } else if (folder.timeslot.days) {
+                return `${folder.timeslot.days.join(',')} ${folder.timeslot.startTime}-${folder.timeslot.endTime}`;
+            }
         }
         
         return '';
     }
 
     async addToFavourites(data) {
+        if (!data || typeof data !== 'object') {
+            console.error('Invalid data passed to addToFavourites:', data);
+            return;
+        }
+
         const { stopId, route, dest, stopName } = data;
         
-        // Check if already exists
+        if (!stopId || !route) {
+            console.error('Missing required data in addToFavourites:', data);
+            return;
+        }
+        
+        // Check if already exists (but allow if we're editing the same one)
         const existing = this.favorites.find(f => f.stopId === stopId && f.route === route);
-        if (existing) {
+        if (existing && (!this.editFavorite || existing.id !== this.editFavorite.id)) {
             this.showModal({
                 title: 'Already Added',
                 message: 'This stop is already in your favourites.',
@@ -296,27 +439,65 @@ class App {
             return;
         }
 
-        // Create favourite object
-        const favourite = {
-            id: `${route}-${stopId}-${Date.now()}`,
-            route: route,
-            dest: dest,
-            stopId: stopId,
-            stopName: stopName
-        };
+        if (this.editFavorite) {
+            // Update existing favorite
+            const index = this.favorites.findIndex(f => f.id === this.editFavorite.id);
+            if (index !== -1) {
+                this.favorites[index] = {
+                    ...this.favorites[index],
+                    route: route,
+                    dest: dest,
+                    stopId: stopId,
+                    stopName: stopName
+                };
+                await Storage.saveFavorites(this.favorites);
+                
+                this.showModal({
+                    title: 'Updated',
+                    message: 'Favorite has been updated successfully.',
+                    confirmText: 'OK'
+                });
+                
+                // Clear edit mode
+                this.editFavorite = null;
+                
+                // Refresh home view
+                this.renderHome();
+                
+                // Notify options page to refresh
+                chrome.runtime.sendMessage({ action: 'refreshFavourites' });
+            }
+        } else {
+            // Show folder selection modal
+            this.showFolderSelectionModal(data, async (selectedFolderId) => {
+                // Create favourite object
+                const favourite = {
+                    id: `${route}-${stopId}-${Date.now()}`,
+                    route: route,
+                    dest: dest,
+                    stopId: stopId,
+                    stopName: stopName,
+                    folder: selectedFolderId // Add folder assignment
+                };
 
-        // Add to favourites
-        this.favorites.push(favourite);
-        await Storage.saveFavorites(this.favorites);
-        
-        // Refresh home view
-        this.renderHome();
-        
-        // Notify options page to refresh
-        chrome.runtime.sendMessage({ action: 'refreshFavourites' });
-        
-        console.log('Added to favourites:', favourite);
-    }
+                // Add to favourites
+                this.favorites.push(favourite);
+                await Storage.saveFavorites(this.favorites);
+                
+                this.showModal({
+                    title: 'Added to Favourites',
+                    message: selectedFolderId ? 'Stop added to your favourites successfully.' : 'Stop added to unassigned favourites.',
+                    confirmText: 'OK'
+                });
+                
+                // Refresh home view
+                this.renderHome();
+                
+                // Notify options page to refresh
+                chrome.runtime.sendMessage({ action: 'refreshFavourites' });
+            });
+        }
+    };
 
     async performSearch(query) {
         const container = document.getElementById('search-results');
@@ -328,11 +509,15 @@ class App {
         container.innerHTML = '<div class="text-center" style="padding:20px;">Searching...</div>';
 
         try {
+            // Check if API is available
+            if (typeof API === 'undefined' || !API.searchRoutes) {
+                throw new Error('API not available');
+            }
+
             // 1. Search for routes matching query
-             // Use exact match or starts with for number
             const routes = await API.searchRoutes(query);
             
-            if (routes.length === 0) {
+            if (!Array.isArray(routes) || routes.length === 0) {
                 container.innerHTML = '<div class="text-center p-4">No routes found</div>';
                 return;
             }
@@ -343,33 +528,39 @@ class App {
             
             const variantsMap = new Map();
             for (const routeObj of routes.slice(0, 5)) {
-                 if (!variantsMap.has(routeObj.route)) {
+                if (!routeObj || !routeObj.route) continue;
+                
+                if (!variantsMap.has(routeObj.route)) {
                     variantsMap.set(routeObj.route, true);
                     const variants = await API.getRouteVariants(routeObj.route);
                     
                     // Render each variant
-                    variants.forEach(variant => {
-                        const el = document.createElement('div');
-                        el.className = 'eta-card';
-                        el.style.cursor = 'pointer';
-                        el.style.display = 'flex';
-                        el.style.justifyContent = 'space-between';
-                        el.style.alignItems = 'center';
-                        
-                        // Modified layout: Route No on left, Destination on right
-                        el.innerHTML = `
-                            <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">${variant.route}</div>
-                            <div style="text-align: right;">
-                                <div style="font-size: 14px; color: var(--text-primary); font-weight: 500;">To ${variant.dest_tc || variant.dest_en}</div>
-                                <div style="font-size: 11px; color: var(--text-secondary);">From ${variant.orig_tc || variant.orig_en}</div>
-                            </div>
-                        `;
-                        el.addEventListener('click', () => {
-                            this.openRouteDetails(variant);
+                    if (Array.isArray(variants)) {
+                        variants.forEach(variant => {
+                            if (!variant) return;
+                            
+                            const el = document.createElement('div');
+                            el.className = 'eta-card';
+                            el.style.cursor = 'pointer';
+                            el.style.display = 'flex';
+                            el.style.justifyContent = 'space-between';
+                            el.style.alignItems = 'center';
+                            
+                            // Modified layout: Route No on left, Destination on right
+                            el.innerHTML = `
+                                <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">${variant.route || ''}</div>
+                                <div style="text-align: right;">
+                                    <div style="font-size: 14px; color: var(--text-primary); font-weight: 500;">To ${variant.dest_tc || variant.dest_en || ''}</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">From ${variant.orig_tc || variant.orig_en || ''}</div>
+                                </div>
+                            `;
+                            el.addEventListener('click', () => {
+                                this.openRouteDetails(variant);
+                            });
+                            container.appendChild(el);
                         });
-                        container.appendChild(el);
-                    });
-                 }
+                    }
+                }
             }
 
         } catch (e) {
@@ -421,13 +612,16 @@ class App {
                 stopEl.dataset.stopId = stop.stop;
                 stopEl.dataset.seq = stop.seq;
                 
+                // Check if this stop is already a favorite
+                const isFavorite = this.favorites.some(fav => fav.stopId === stop.stop && fav.route === variant.route && (fav.dest === variant.dest_tc || fav.dest === variant.dest_en));
+                
                 // New Expandable Layout
                 stopEl.innerHTML = `
                     <div class="stop-header">
                         <div class="stop-dot"></div>
                         <div class="stop-name">${stop.stopInfo?.name_tc || stop.stopInfo?.name_en || stop.stop}</div>
                         <div class="stop-actions">
-                            <button class="fav-btn" data-stop-id="${stop.stop}" data-route="${variant.route}" data-dest="${variant.dest_tc || variant.dest_en}" data-stop-name="${stop.stopInfo?.name_tc || stop.stopInfo?.name_en || stop.stop}" title="Add to favourites">☆</button>
+                            <button class="fav-btn" data-stop-id="${stop.stop}" data-route="${variant.route}" data-dest="${variant.dest_tc || variant.dest_en}" data-stop-name="${stop.stopInfo?.name_tc || stop.stopInfo?.name_en || stop.stop}" title="${isFavorite ? 'Remove from favourites' : 'Add to favourites'}">${isFavorite ? '⭐' : '☆'}</button>
                             <div class="expand-icon">▼</div>
                         </div>
                     </div>
@@ -457,13 +651,23 @@ class App {
                 const favBtn = stopEl.querySelector('.fav-btn');
                 favBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    await this.addToFavourites(favBtn.dataset);
-                    favBtn.textContent = '★'; // Filled star
-                    favBtn.style.color = 'var(--primary-color)';
-                    setTimeout(() => {
+                    
+                    const isCurrentlyFavorite = this.favorites.some(fav => fav.stopId === favBtn.dataset.stopId && fav.route === favBtn.dataset.route && (fav.dest === favBtn.dataset.dest));
+                    
+                    if (isCurrentlyFavorite) {
+                        // Remove from favorites
+                        this.favorites = this.favorites.filter(fav => !(fav.stopId === favBtn.dataset.stopId && fav.route === favBtn.dataset.route && (fav.dest === favBtn.dataset.dest)));
+                        await Storage.saveFavorites(this.favorites);
                         favBtn.textContent = '☆';
-                        favBtn.style.color = '';
-                    }, 1000);
+                        favBtn.title = 'Add to favourites';
+                        // Notify popup to refresh
+                        chrome.runtime.sendMessage({ action: 'refreshFavourites' });
+                    } else {
+                        // Add to favorites
+                        await this.addToFavourites(favBtn.dataset);
+                        favBtn.textContent = '⭐';
+                        favBtn.title = 'Remove from favourites';
+                    }
                 });
 
                 timeline.appendChild(stopEl);
@@ -619,6 +823,83 @@ class App {
         // Show
         modal.classList.remove('hidden');
         // Small delay to allow CSS transition to catch the "no hidden" state
+        requestAnimationFrame(() => {
+            modal.classList.add('active');
+        });
+    }
+
+    showFolderSelectionModal(favoriteData, onFolderSelected) {
+        const modal = document.getElementById('app-modal');
+        const titleEl = document.getElementById('modal-title');
+        const msgEl = document.getElementById('modal-message');
+        const actionsEl = document.getElementById('modal-actions');
+        
+        if (!modal) return;
+        
+        titleEl.textContent = 'Choose Folder';
+        msgEl.innerHTML = '<div style="margin-bottom: 16px;">Select a folder for this favorite:</div>';
+        
+        // Create folder selection
+        const folderSelect = document.createElement('div');
+        folderSelect.style.cssText = 'margin-bottom: 16px;';
+        
+        // Unassigned option
+        const unassignedOption = document.createElement('button');
+        unassignedOption.className = 'folder-option-btn active';
+        unassignedOption.innerHTML = '<span class="folder-icon">📁</span> Unassigned';
+        unassignedOption.addEventListener('click', () => {
+            document.querySelectorAll('.folder-option-btn').forEach(btn => btn.classList.remove('active'));
+            unassignedOption.classList.add('active');
+        });
+        folderSelect.appendChild(unassignedOption);
+        
+        // Folder options
+        this.folders.forEach(folder => {
+            const folderOption = document.createElement('button');
+            folderOption.className = 'folder-option-btn';
+            folderOption.innerHTML = `<span class="folder-icon">${folder.icon || '📁'}</span> ${folder.name}`;
+            folderOption.dataset.folderId = folder.id;
+            folderOption.addEventListener('click', () => {
+                document.querySelectorAll('.folder-option-btn').forEach(btn => btn.classList.remove('active'));
+                folderOption.classList.add('active');
+            });
+            folderSelect.appendChild(folderOption);
+        });
+        
+        msgEl.appendChild(folderSelect);
+        
+        actionsEl.innerHTML = ''; // Clear previous buttons
+        
+        // Cancel Button
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'modal-btn';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => {
+            modal.classList.remove('active');
+            setTimeout(() => modal.classList.add('hidden'), 200);
+        });
+        actionsEl.appendChild(cancelBtn);
+        
+        // Add Button
+        const addBtn = document.createElement('button');
+        addBtn.className = 'modal-btn bold primary';
+        addBtn.textContent = 'Add Favorite';
+        addBtn.addEventListener('click', () => {
+            const selectedFolderBtn = document.querySelector('.folder-option-btn.active');
+            let selectedFolderId = null;
+            
+            if (selectedFolderBtn && selectedFolderBtn.dataset.folderId) {
+                selectedFolderId = selectedFolderBtn.dataset.folderId;
+            }
+            
+            modal.classList.remove('active');
+            setTimeout(() => modal.classList.add('hidden'), 200);
+            onFolderSelected(selectedFolderId);
+        });
+        actionsEl.appendChild(addBtn);
+        
+        // Show
+        modal.classList.remove('hidden');
         requestAnimationFrame(() => {
             modal.classList.add('active');
         });

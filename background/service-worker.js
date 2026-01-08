@@ -182,15 +182,19 @@ const RuleEngine = {
 
 // Initialize on installation
 chrome.runtime.onInstalled.addListener(async (details) => {
-    console.log('EasyETA_HK installed:', details.reason);
+    try {
+        console.log('EasyETA_HK installed:', details.reason);
 
-    if (details.reason === 'install') {
-        // First-time installation
-        await initializeExtension();
-        console.log('EasyETA_HK installed! Click the extension icon to use.');
-    } else if (details.reason === 'update') {
-        // Extension updated
-        console.log('Extension updated to version', chrome.runtime.getManifest().version);
+        if (details.reason === 'install') {
+            // First-time installation
+            await initializeExtension();
+            console.log('EasyETA_HK installed! Click the extension icon to use.');
+        } else if (details.reason === 'update') {
+            // Extension updated
+            console.log('Extension updated to version', chrome.runtime.getManifest().version);
+        }
+    } catch (error) {
+        console.error('Error during extension installation:', error);
     }
 });
 
@@ -222,14 +226,18 @@ async function initializeExtension() {
 
 // Listen for alarm events
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-    console.log('Alarm triggered:', alarm.name);
-    
-    if (alarm.name === 'checkRules') {
-        await checkAllRules();
-    } else if (alarm.name.startsWith('rule-')) {
-        // Specific rule alarm
-        const ruleId = alarm.name.replace('rule-', '');
-        await evaluateRule(ruleId);
+    try {
+        console.log('Alarm triggered:', alarm.name);
+        
+        if (alarm.name === 'checkRules') {
+            await checkAllRules();
+        } else if (alarm.name.startsWith('rule-')) {
+            // Specific rule alarm
+            const ruleId = alarm.name.replace('rule-', '');
+            await evaluateRule(ruleId);
+        }
+    } catch (error) {
+        console.error('Error handling alarm:', error);
     }
 });
 
@@ -448,31 +456,43 @@ function replaceTemplateVars(template, context) {
 
 // Handle notification events
 chrome.notifications.onClicked.addListener((notificationId) => {
-    console.log('Notification clicked:', notificationId);
-    
-    // Open popup when notification is clicked
-    chrome.action.openPopup();
-    
-    // Clear the notification
-    chrome.notifications.clear(notificationId);
+    try {
+        console.log('Notification clicked:', notificationId);
+        
+        // Open popup when notification is clicked
+        chrome.action.openPopup();
+        
+        // Clear the notification
+        chrome.notifications.clear(notificationId);
+    } catch (error) {
+        console.error('Error handling notification click:', error);
+    }
 });
 
 chrome.notifications.onClosed.addListener((notificationId, byUser) => {
-    console.log('Notification closed:', notificationId, 'by user:', byUser);
-    
-    // Could add analytics or other logic here
+    try {
+        console.log('Notification closed:', notificationId, 'by user:', byUser);
+        
+        // Could add analytics or other logic here
+    } catch (error) {
+        console.error('Error handling notification close:', error);
+    }
 });
 
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
-    console.log('Notification button clicked:', notificationId, 'button:', buttonIndex);
-    
-    if (buttonIndex === 0) {
-        // Open popup when "Open EasyETA" button is clicked
-        chrome.action.openPopup();
+    try {
+        console.log('Notification button clicked:', notificationId, 'button:', buttonIndex);
+        
+        if (buttonIndex === 0) {
+            // Open popup when "Open EasyETA" button is clicked
+            chrome.action.openPopup();
+        }
+        
+        // Clear the notification
+        chrome.notifications.clear(notificationId);
+    } catch (error) {
+        console.error('Error handling notification button click:', error);
     }
-    
-    // Clear the notification
-    chrome.notifications.clear(notificationId);
 });
 
 // Handle messages from popup or options page
@@ -556,6 +576,10 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 });
 
 // Start rule checking when service worker starts
-setupRuleChecking();
+try {
+    setupRuleChecking();
+} catch (error) {
+    console.error('Failed to setup rule checking:', error);
+}
 
 console.log('EasyETA_HK service worker loaded');

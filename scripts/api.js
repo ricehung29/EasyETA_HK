@@ -302,6 +302,28 @@ const API = {
     },
 
     /**
+     * Get ETA for a specific stop and route combination (optimized)
+     * @param {string} stopId
+     * @param {string} route
+     * @param {string} serviceType
+     */
+    async getStopRouteETA(stopId, route, serviceType = '1') {
+        const url = `${this.baseUrls.kmb}/eta/${stopId}/${route}/${serviceType}`;
+        try {
+            const response = await this.fetch(url);
+            if (response && response.data) {
+                return response.data.map(eta => ({
+                    ...eta,
+                    formatted: this.formatETA(eta.eta)
+                }));
+            }
+        } catch (error) {
+            console.warn('Stop-Route ETA API failed:', error);
+        }
+        return [];
+    },
+
+    /**
      * Format ETA time for display
      * @param {string} etaISO - ISO timestamp
      * @param {string} format - 'relative', 'absolute', or 'both'
@@ -310,10 +332,10 @@ const API = {
         if (!etaISO) {
             return {
                 minutes: null,
-                text: 'N/A',
-                status: 'normal',
+                text: '*',
+                status: 'scheduled',
                 time: '--:--',
-                display: 'N/A'
+                display: '*'
             };
         }
 

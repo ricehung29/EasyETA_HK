@@ -443,6 +443,21 @@ body {
     margin-bottom: var(--spacing-md);
 }
 
+.toggle-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.toggle-group label {
+    margin-bottom: 0;
+    flex: 1;
+}
+
+.toggle-group .toggle-btn {
+    margin-left: var(--spacing-md);
+}
+
 .form-label {
     display: block;
     font-size: 13px;
@@ -476,6 +491,48 @@ body {
     background: rgba(0,122,255,0.05);
     border-radius: 6px;
     border-left: 3px solid var(--primary-color);
+}
+
+/* Toggle Group Styles */
+.toggle-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.toggle-group label {
+    margin-bottom: 0;
+    flex: 1;
+}
+
+.toggle-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.toggle-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition: opacity 0.3s ease;
+}
+
+.toggle-label-off {
+    color: var(--text-secondary);
+}
+
+.toggle-label-on {
+    color: var(--primary-color);
+    opacity: 0;
+}
+
+.toggle-btn.active ~ .toggle-label-on {
+    opacity: 1;
+}
+
+.toggle-btn.active ~ .toggle-label-off {
+    opacity: 0;
 }
 
 /* Days selector for timeslots */
@@ -809,6 +866,98 @@ body.dark-mode .form-select {
 .folder-actions {
     display: flex;
     gap: var(--spacing-xs);
+}
+
+/* Timeslot Display */
+.timeslot-display {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-top: 4px;
+}
+
+.timeslot-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.timeslot-visual {
+    flex: 1;
+    max-width: 120px;
+}
+
+.timeslot-bar {
+    position: relative;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.timeslot-bar.empty {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.timeslot-fill {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: var(--primary-color);
+    border-radius: 3px;
+    transition: all 0.2s ease;
+}
+
+/* Folder Favorites (nested within folders) */
+.folder-favorites {
+    margin-top: var(--spacing-md);
+    padding-left: 52px; /* Align with folder content */
+}
+
+.favorite-item {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin-bottom: var(--spacing-xs);
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+}
+
+.favorite-item:hover {
+    background: rgba(0, 0, 0, 0.04);
+    transform: translateX(2px);
+}
+
+.favorite-item .list-content {
+    flex: 1;
+}
+
+.favorite-item .list-trailing {
+    margin-left: var(--spacing-md);
+}
+
+/* Unassigned Favorites Section */
+.unassigned-favorites {
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    background: linear-gradient(135deg, rgba(142, 142, 147, 0.05), rgba(142, 142, 147, 0.02));
+    border: 1px solid rgba(142, 142, 147, 0.1);
+}
+
+.unassigned-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid rgba(142, 142, 147, 0.2);
+}
+
+.unassigned-header .folder-icon {
+    background: rgba(142, 142, 147, 0.1);
 }
 
 /* Toggle Buttons */
@@ -1256,6 +1405,54 @@ body.dark-mode #folderStartTime, body.dark-mode #folderEndTime {
     color: #FFFFFF;
 }
 
+/* Per-day times styling */
+.per-day-times {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.per-day-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.per-day-item .day-name {
+    font-weight: bold;
+    min-width: 80px;
+    color: #333;
+}
+
+.per-day-item select {
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    font-size: 14px;
+}
+
+/* Dark mode for per-day items */
+body.dark-mode .per-day-item {
+    background: #2C2C2E;
+    border-color: #48484A;
+}
+
+body.dark-mode .per-day-item .day-name {
+    color: #FFFFFF;
+}
+
+body.dark-mode .per-day-item select {
+    border-color: #48484A;
+    background: #1C1C1E;
+    color: #FFFFFF;
+}
+
 /* Dark mode for clock */
 body.dark-mode .clock-face {
     border-color: #FFD700;
@@ -1276,4 +1473,201 @@ body.dark-mode .minute-hand {
 
 body.dark-mode .second-hand {
     background: #FF6347;
+}
+
+/* Enhanced Timeslot Display */
+.folder-timeslot {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+.timeslot-none {
+    color: #999;
+    font-style: italic;
+}
+
+.timeslot-single {
+    color: #666;
+    font-weight: 500;
+}
+
+.timeslot-perday {
+    color: #555;
+    font-weight: 500;
+}
+
+.timeslot-day {
+    background: rgba(0, 123, 255, 0.1);
+    color: var(--primary-color);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    margin: 0 2px;
+}
+
+/* Dark mode for timeslot display */
+body.dark-mode .timeslot-none {
+    color: #666;
+}
+
+body.dark-mode .timeslot-single {
+    color: #aaa;
+}
+
+body.dark-mode .timeslot-perday {
+    color: #bbb;
+}
+
+body.dark-mode .timeslot-day {
+    background: rgba(0, 123, 255, 0.2);
+    color: #4A9EFF;
+}
+
+/* Conflict Modal Styling */
+.conflict-details {
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    font-size: 13px;
+}
+
+.conflict-details strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.conflict-details em {
+    display: block;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Folder Priority Management */
+.priority-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.priority-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--separator-color);
+    background: var(--surface-color);
+    cursor: move;
+    transition: all 0.2s ease;
+}
+
+.priority-item:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
+}
+
+.priority-drag-handle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    cursor: grab;
+    user-select: none;
+    margin-right: 8px;
+    opacity: 0.6;
+}
+
+.priority-item:hover .priority-drag-handle {
+    opacity: 1;
+}
+
+.priority-item[style*="opacity: 0.5"] {
+    opacity: 0.5 !important;
+    transform: rotate(5deg);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.priority-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    flex: 1;
+}
+
+.priority-icon {
+    font-size: 18px;
+}
+
+.priority-info {
+    flex: 1;
+}
+
+.priority-name {
+    font-weight: 600;
+    font-size: 16px;
+    margin-bottom: 2px;
+}
+
+.priority-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.priority-controls {
+    display: flex;
+    gap: 4px;
+}
+
+.priority-btn {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+    font-size: 14px;
+}
+
+.priority-btn:hover:not(:disabled) {
+    background: rgba(0, 123, 255, 0.1);
+}
+
+.priority-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Dark mode for priority management */
+body.dark-mode .priority-item {
+    background: #2C2C2E;
+    border-color: #48484A;
+}
+
+body.dark-mode .priority-item:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
+}
+
+body.dark-mode .priority-drag-handle {
+    color: #8E8E93;
+}
+
+body.dark-mode .priority-item:hover .priority-drag-handle {
+    color: var(--text-primary);
+}
+
+/* Dark mode for toggle labels */
+body.dark-mode .toggle-label-off {
+    color: #888;
+}
+
+body.dark-mode .toggle-label-on {
+    color: #4A9EFF;
 }
