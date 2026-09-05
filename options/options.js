@@ -32,10 +32,13 @@ const elements = {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
+    await I18n.init();
     await loadData();
     setupEventListeners();
     renderFoldersAndFavorites();
     updateStorageInfo();
+    setupLanguageSwitcher();
+    applyI18nToDocument();
 });
 
 // Listen for messages from popup to refresh favourites
@@ -299,56 +302,46 @@ function setupEventListeners() {
 }
 
 function setupSettings() {
-    // Clear data button
-    elements.clearAllBtn.addEventListener('click', async () => {
-        if (confirm("Type 'DELETE' to confirm clearing all data.")) {
-            const check = prompt("Type 'DELETE' to confirm clearing all data.");
-            if (check === 'DELETE') {
-                await chrome.storage.local.clear();
-                alert('All data cleared.');
-                location.reload();
-            }
-        }
-    });
-
-    // Dark Mode Toggle Logic
+    // Dark Mode Toggle Logic (shared via chrome.storage.sync with popup)
     if (elements.settingDarkMode) {
-        // Check saved preference
-        if (localStorage.getItem('theme') === 'dark') {
-            elements.settingDarkMode.classList.add('active');
-            document.body.classList.add('dark-mode');
-        }
+        chrome.storage.sync.get('theme', (result) => {
+            const theme = result.theme || 'light';
+            if (theme === 'dark') {
+                elements.settingDarkMode.classList.add('active');
+                document.body.classList.add('dark-mode');
+            }
+        });
 
         elements.settingDarkMode.addEventListener('click', (e) => {
             const isActive = e.target.classList.contains('active');
             if (isActive) {
                 e.target.classList.remove('active');
                 document.body.classList.remove('dark-mode');
-                localStorage.setItem('theme', 'light');
+                chrome.storage.sync.set({ theme: 'light' });
             } else {
                 e.target.classList.add('active');
                 document.body.classList.add('dark-mode');
-                localStorage.setItem('theme', 'dark');
+                chrome.storage.sync.set({ theme: 'dark' });
             }
         });
     }
 
-    // Auto Refresh Toggle Logic
+    // Auto Refresh Toggle Logic (shared via chrome.storage.sync with popup)
     if (elements.settingAutoRefresh) {
-        // Check saved preference (default true)
-        const savedAutoRefresh = localStorage.getItem('autoRefresh');
-        if (savedAutoRefresh === 'false') {
-            elements.settingAutoRefresh.classList.remove('active');
-        }
+        chrome.storage.sync.get('autoRefresh', (result) => {
+            const saved = result.autoRefresh;
+            if (saved === false) {
+                elements.settingAutoRefresh.classList.remove('active');
+            }
+        });
 
         elements.settingAutoRefresh.addEventListener('click', (e) => {
             const isActive = e.target.classList.contains('active');
+            chrome.storage.sync.set({ autoRefresh: !isActive });
             if (isActive) {
                 e.target.classList.remove('active');
-                localStorage.setItem('autoRefresh', 'false');
             } else {
                 e.target.classList.add('active');
-                localStorage.setItem('autoRefresh', 'true');
             }
         });
     }
@@ -391,7 +384,7 @@ function renderFoldersAndFavorites() {
         html += `
         <div class="folder-item" style="background: linear-gradient(135deg, ${folder.color}15, ${folder.color}08); border-left: 4px solid ${folder.color};">
             <div class="folder-header">
-                <div class="folder-icon" style="color: ${folder.color};">📁</div>
+                <div class="folder-icon" style="color: ${folder.color};"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-folder"/></svg></div>
                 <div class="folder-info">
                     <div class="folder-name">${escapeHtml(folder.name)}</div>
                     <div class="folder-count">${folder.favoritesCount || 0} favorites</div>
@@ -433,7 +426,7 @@ function renderFoldersAndFavorites() {
         html += `
         <div class="unassigned-favorites">
             <div class="unassigned-header">
-                <div class="folder-icon" style="color: var(--text-secondary);">📄</div>
+                <div class="folder-icon" style="color: var(--text-secondary);"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-file"/></svg></div>
                 <div class="folder-info">
                     <div class="folder-name">Unassigned Favorites</div>
                     <div class="folder-count">${unassignedFavorites.length} favorites</div>
@@ -484,8 +477,8 @@ function renderFoldersAndFavorites() {
 }
 
 // ... Data handlers (Export/Import/Clear) ... 
-function handleExport() { /* Same implementation */ 
-    const data = { rules: state.rules, favorites: state.favorites, exportedAt: new Date().toISOString(), version: '1.0.0' };
+function handleExport() {
+    const data = { favorites: state.favorites, folders: state.folders, exportedAt: new Date().toISOString(), version: '1.0.0' };
     const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -495,7 +488,7 @@ function handleExport() { /* Same implementation */
     a.click();
     document.body.removeChild(a);
 }
-async function handleImport() { /* Same implementation */ 
+async function handleImport() {
     const file = elements.importFile.files[0];
     if (!file) { alert('Please select a JSON file first'); return; }
     const reader = new FileReader();
@@ -510,8 +503,8 @@ async function handleImport() { /* Same implementation */
     };
     reader.readAsText(file);
 }
-async function handleClearAll() { /* Same implementation */ 
-     const check = prompt("Type 'DELETE' to confirm clearing all data.");
+async function handleClearAll() {
+    const check = prompt("Type 'DELETE' to confirm clearing all data.");
     if (check === 'DELETE') { await chrome.storage.local.clear(); alert('All data cleared.'); location.reload(); }
 }async function handleTestNotification() {
     // Send a test notification
@@ -537,7 +530,9 @@ async function handleClearAll() { /* Same implementation */
         notificationAction: testAction,
         context: testContext
     });
-}async function updateStorageInfo() { /* Same implementation */ 
+}
+
+async function updateStorageInfo() {
     const bytes = await new Promise(resolve => chrome.storage.local.getBytesInUse(null, resolve));
     elements.storageInfo.textContent = `${(bytes / 1024).toFixed(2)} KB used by EasyETA`;
 }
@@ -633,7 +628,7 @@ async function handleEditFavorite(id) {
 
 function getFolderTimeslotDisplay(timeslot) {
     if (!timeslot) {
-        return '<span class="timeslot-none">No specific timeslot</span>';
+        return `<span class="timeslot-none">${I18n.t('timeslot.none')}</span>`;
     }
 
     if (timeslot.perday) {
@@ -641,7 +636,7 @@ function getFolderTimeslotDisplay(timeslot) {
         const dayEntries = Object.entries(timeslot.perday);
         
         if (dayEntries.length === 0) {
-            return '<span class="timeslot-none">No times configured</span>';
+            return `<span class="timeslot-none">${I18n.t('timeslot.no_config')}</span>`;
         }
         
         // Find the earliest start time and latest end time across all days
@@ -656,7 +651,7 @@ function getFolderTimeslotDisplay(timeslot) {
         const dayNames = dayEntries.map(([day]) => day.charAt(0).toUpperCase() + day.slice(1, 3));
         
         return `<div class="timeslot-display">
-            <div class="timeslot-text">${dayNames.join(', ')}: ${earliestStart} - ${latestEnd} (max range)</div>
+            <div class="timeslot-text">${dayNames.join(', ')}: ${earliestStart} - ${latestEnd} ${I18n.t('timeslot.max_range')}</div>
             <div class="timeslot-visual">${createTimeslotVisual(earliestStart, latestEnd)}</div>
         </div>`;
     } else {
@@ -1086,15 +1081,15 @@ function manageFolderPriority() {
         <div class="priority-item" data-folder-id="${folder.id}" draggable="true" style="background: linear-gradient(135deg, ${folder.color}15, ${folder.color}08); border-left: 4px solid ${folder.color};">
             <div class="priority-drag-handle">⋮⋮</div>
             <div class="priority-content">
-                <div class="priority-icon" style="color: ${folder.color};">📁</div>
+                <div class="priority-icon" style="color: ${folder.color};"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-folder"/></svg></div>
                 <div class="priority-info">
                     <div class="priority-name">${escapeHtml(folder.name)}</div>
                     <div class="priority-count">${folder.favoritesCount || 0} favorites</div>
                 </div>
             </div>
             <div class="priority-controls">
-                <button class="priority-btn priority-up" ${folder.priority === 1 ? 'disabled' : ''}>⬆️</button>
-                <button class="priority-btn priority-down" ${folder.priority === sortedFolders.length ? 'disabled' : ''}>⬇️</button>
+                <button class="priority-btn priority-up" ${folder.priority === 1 ? 'disabled' : ''}><svg class="icon icon-sm" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-arrow-up"/></svg></button>
+                <button class="priority-btn priority-down" ${folder.priority === sortedFolders.length ? 'disabled' : ''}><svg class="icon icon-sm" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-arrow-down"/></svg></button>
             </div>
         </div>
     `).join('');
@@ -1245,3 +1240,77 @@ function manageFolderPriority() {
         });
     }
 }
+
+// --- LANGUAGE SWITCHING ---
+
+function setupLanguageSwitcher() {
+    const select = document.getElementById('setting-lang');
+    if (!select) return;
+
+    select.value = I18n.getLang();
+
+    select.addEventListener('change', async () => {
+        await I18n.setLang(select.value);
+        applyI18nToDocument();
+        renderFoldersAndFavorites();
+    });
+
+    I18n.onChange(() => {
+        select.value = I18n.getLang();
+    });
+}
+
+function applyI18nToDocument() {
+        I18n.applyToDocument();
+
+        // Re-translate nav tabs
+        document.querySelectorAll('.nav-tab .nav-label').forEach(el => {
+            const tabKey = el.textContent.trim().toLowerCase();
+            if (tabKey === 'favorites' || tabKey === '最愛') el.textContent = I18n.t('options.favorites');
+            else if (tabKey === 'settings' || tabKey === '設定') el.textContent = I18n.t('options.settings');
+            else if (tabKey === 'data' || tabKey === '數據') el.textContent = I18n.t('options.data');
+            else if (tabKey === 'about' || tabKey === '關於') el.textContent = I18n.t('options.about');
+        });
+
+        // Section headers
+        document.querySelectorAll('.section-header .section-title').forEach(el => {
+            const text = el.textContent.trim();
+            if (text === 'Folders & Favorites' || text === '資料夾與最愛') el.textContent = I18n.t('options.folders_favorites');
+            else if (text === 'App Settings' || text === '應用程式設定') el.textContent = I18n.t('options.app_settings');
+            else if (text === 'Backup & Restore' || text === '備份與還原') el.textContent = I18n.t('options.backup_restore');
+            else if (text === 'Danger Zone' || text === '危險區域') el.textContent = I18n.t('options.danger_zone');
+            else if (text === 'Storage Usage' || text === '儲存空間使用量') el.textContent = I18n.t('options.storage_usage');
+        });
+
+        // Action buttons
+        const btnMap = {
+            'manageFolderPriorityBtn': 'options.priority_order',
+            'addFolderBtn': 'options.add_folder',
+            'addFavouriteBtn': 'options.add_favourite',
+            'exportAllBtn': 'options.export_json',
+            'importBtn': 'options.import',
+            'clearAllBtn': 'options.clear_everything',
+            'testNotificationBtn': 'options.test'
+        };
+        for (const [id, key] of Object.entries(btnMap)) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = I18n.t(key);
+        }
+
+        // Unassigned header
+        document.querySelectorAll('.unassigned-header .folder-name').forEach(el => {
+            el.textContent = I18n.t('options.unassigned');
+        });
+
+        // Empty state
+        document.querySelectorAll('.empty-state p').forEach(el => {
+            el.textContent = I18n.t('options.no_folders');
+        });
+        document.querySelectorAll('.empty-state small').forEach(el => {
+            el.textContent = I18n.t('options.no_folders_desc');
+        });
+
+        // No Folder option in edit modal
+        const noFolderOption = document.querySelector('#favoriteFolderSelect option[value=""]');
+        if (noFolderOption) noFolderOption.textContent = I18n.t('options.no_folder');
+    }

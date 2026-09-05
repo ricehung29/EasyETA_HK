@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "EasyETA_HK",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Smart Hong Kong public transport ETA checker with advanced rule programming and notifications",
+  "default_locale": "en",
   
   "action": {
     "default_title": "EasyETA_HK - HK Bus Tracker",
@@ -34,8 +35,6 @@
   "options_page": "options/options.html",
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
-  },
-
-  "offline_enabled": true
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
 }

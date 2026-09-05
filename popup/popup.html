@@ -4,8 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EasyETA</title>
-    <!-- Use local Leaflet files to comply with CSP -->
     <link rel="stylesheet" href="popup.css">
+    <style>
+    .search-mode-toggle { display: flex; gap: 8px; margin-bottom: 8px; }
+    .search-mode-btn { flex: 1; padding: 8px; border-radius: 8px; border: 1px solid var(--separator-color); background: var(--surface-color); color: var(--text-secondary); cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+    .search-mode-btn.active { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+    .autocomplete { position: absolute; z-index: 200; background: var(--surface-color); border: 1px solid var(--separator-color); border-radius: 8px; box-shadow: var(--shadow-md); max-height: 240px; overflow-y: auto; width: calc(100% - 32px); margin-top: 2px; }
+    .autocomplete-item { padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--separator-color); transition: background 0.15s; }
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:hover { background: rgba(52,152,219,0.06); }
+    .autocomplete-route { font-weight: 600; color: var(--text-primary); min-width: 40px; }
+    .autocomplete-dest { font-size: 12px; color: var(--text-secondary); }
+    .autocomplete-stop-icon { font-size: 14px; }
+    .autocomplete-stop-name { flex: 1; color: var(--text-primary); }
+    .autocomplete-route-tag { font-size: 11px; color: var(--primary-color); background: rgba(52,152,219,0.08); padding: 2px 6px; border-radius: 4px; }
+    .lang-select { padding: 6px 10px; border: 1px solid var(--separator-color); border-radius: 8px; background: var(--surface-color); color: var(--text-primary); font-size: 13px; font-family: inherit; cursor: pointer; }
+    body.dark-mode .lang-select { background: #242438; border-color: #3A3A4E; color: var(--text-primary); }
+    .settings-group { margin-bottom: 16px; }
+    .settings-group .settings-label { font-size: 12px; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.8px; font-weight: 600; margin-bottom: 8px; margin-left: 4px; }
+    .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--surface-color); border-radius: var(--radius-md); border: 1px solid var(--separator-color); margin-bottom: 8px; }
+    .setting-row .setting-info { flex: 1; }
+    .setting-row .setting-title { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+    .setting-row .setting-desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+    .autocomplete-wrapper { position: relative; }
+    </style>
 </head>
 <body>
     <div id="app">
@@ -14,27 +36,27 @@
             <h1 class="header-title">EasyETA</h1>
             <nav class="top-nav">
                 <button class="nav-item active" data-target="view-home">
-                    <span class="nav-icon">🏠</span>
-                    <span class="nav-label">Home</span>
+                    <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-home"/></svg></span>
+                    <span class="nav-label" data-i18n="nav.home">Home</span>
                 </button>
                 <button class="nav-item" data-target="view-search">
-                    <span class="nav-icon">🔍</span>
-                    <span class="nav-label">Search</span>
+                    <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-search"/></svg></span>
+                    <span class="nav-label" data-i18n="nav.search">Search</span>
                 </button>
                 <button class="nav-item" data-target="view-settings">
-                    <span class="nav-icon">⚙️</span>
-                    <span class="nav-label">Settings</span>
+                    <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-settings"/></svg></span>
+                    <span class="nav-label" data-i18n="nav.settings">Settings</span>
                 </button>
             </nav>
         </header>
 
         <!-- Main Content Area with Views -->
         <main class="main-content">
-            
+
             <!-- VIEW: HOME (Favorites & Recent) -->
             <div id="view-home" class="view active">
-                <div class="section-title">Favorites</div>
-                
+                <div class="section-title" data-i18n="home.favorites">Favorites</div>
+
                 <!-- Favorite Tabs -->
                 <div class="tab-group" style="margin-bottom: 16px;">
                     <button class="tab-btn active" data-fav-tab="all">All</button>
@@ -42,17 +64,17 @@
                     <button class="tab-btn" data-fav-tab="afternoon">Afternoon</button>
                     <button class="tab-btn" data-fav-tab="evening">Evening</button>
                 </div>
-                
+
                 <div id="favorites-list" class="section-group">
                     <!-- JS will populate this -->
                     <div class="list-item">
                         <div class="list-content">
-                            <div class="list-subtitle">No favorites yet</div>
+                            <div class="list-subtitle" data-i18n="home.no_favorites_all">No favorites yet</div>
                         </div>
                     </div>
                 </div>
 
-                <div class="section-title expanded" data-section="recent">Recent Searches <span class="expand-icon">▼</span></div>
+                <div class="section-title expanded" data-section="recent"><span data-i18n="home.recent">Recent Searches</span> <span class="expand-icon"><svg class="icon icon-xs" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-arrow-down"/></svg></span></div>
                 <div id="recent-list" class="section-group">
                     <!-- JS will populate -->
                 </div>
@@ -61,12 +83,17 @@
             <!-- VIEW: SEARCH -->
             <div id="view-search" class="view">
                 <div class="search-container">
-                    <div class="search-input-wrapper">
-                        <span class="search-icon">🔍</span>
-                        <input type="text" id="route-search-input" class="search-input" placeholder="Search route (e.g. 968, 1A)">
+                    <div class="search-mode-toggle" id="search-mode-toggle">
+                        <button class="search-mode-btn active" data-mode="route" data-i18n="search_type.route">Route</button>
+                        <button class="search-mode-btn" data-mode="stop" data-i18n="search_type.stop">Stop</button>
+                    </div>
+                    <div class="search-input-wrapper autocomplete-wrapper">
+                        <span class="search-icon"><svg class="icon" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-search"/></svg></span>
+                        <input type="text" id="route-search-input" class="search-input" data-i18n-placeholder="search.placeholder" placeholder="Search route (e.g. 968, 1A)">
+                        <div id="autocomplete-dropdown" class="autocomplete" style="display:none;"></div>
                     </div>
                 </div>
-                
+
                 <div id="search-results" class="mt-md">
                     <!-- JS will populate route results -->
                 </div>
@@ -74,21 +101,53 @@
 
             <!-- VIEW: SETTINGS -->
             <div id="view-settings" class="view">
-                <div class="section-group">
-                    <div class="list-item" id="settings-item">
-                        <div class="list-content">
-                            <div class="list-title">Open Settings</div>
-                            <div class="list-subtitle">Manage rules, favorites, and preferences</div>
+                <div class="settings-group">
+                    <div class="settings-label" data-i18n="nav.settings">Settings</div>
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <div class="setting-title" data-i18n="settings.dark_mode">Dark Mode</div>
+                            <div class="setting-desc" data-i18n="settings.dark_mode_desc">Enable dark theme for the extension</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-dark-mode">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <div class="setting-title" data-i18n="settings.language">Language</div>
+                            <div class="setting-desc" data-i18n="settings.language_desc">Choose display language</div>
+                        </div>
+                        <select class="lang-select" id="setting-lang">
+                            <option value="en">English</option>
+                            <option value="zh-HK">繁體中文</option>
+                        </select>
+                    </div>
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <div class="setting-title" data-i18n="settings.auto_refresh">Auto Refresh (30s)</div>
+                            <div class="setting-desc" data-i18n="settings.auto_refresh_desc">Automatically refresh ETA data every 30 seconds</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-auto-refresh" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <div class="setting-row" id="settings-item">
+                        <div class="setting-info">
+                            <div class="setting-title" data-i18n="settings.open">Open Settings</div>
+                            <div class="setting-desc" data-i18n="settings.subtitle">Manage rules, favorites, and preferences</div>
                         </div>
                         <div class="list-trailing">
-                            →
+                            <svg class="icon icon-sm" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-arrow-right"/></svg>
                         </div>
                     </div>
                 </div>
             </div>
 
-             <!-- VIEW: ROUTE DETAILS (Hidden by default, overlays others or navigates) -->
-             <!-- We implement a simple stack navigation via class toggling -->
+             <!-- VIEW: ROUTE DETAILS -->
              <div id="view-details" class="view hidden" style="background: var(--background-color);">
                 <div class="section-group" style="margin-bottom: 0;">
                     <div class="list-item" style="padding: 16px;">
@@ -99,7 +158,7 @@
                         <button id="back-btn" class="header-btn" style="position:relative; right:0; font-size: 24px; padding: 0 8px; line-height: 1;">&times;</button>
                     </div>
                 </div>
-                
+
                 <div id="stops-container" class="section-group">
                     <!-- Stops list -->
                 </div>
@@ -122,6 +181,7 @@
 
     <!-- Scripts -->
     <script src="../scripts/storage.js"></script>
+    <script src="../scripts/i18n.js"></script>
     <script src="../scripts/api.js"></script>
     <script src="../scripts/rule-engine.js"></script>
     <script src="popup.js"></script>

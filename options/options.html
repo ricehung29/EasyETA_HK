@@ -19,20 +19,20 @@
         <!-- Navigation Tabs -->
         <nav class="nav-tabs">
             <button class="nav-tab active" data-tab="favorites">
-                <span class="nav-icon">⭐</span>
-                <span class="nav-label">Favorites</span>
+                <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-star"/></svg></span>
+                <span class="nav-label" data-i18n="options.favorites">Favorites</span>
             </button>
             <button class="nav-tab" data-tab="settings">
-                <span class="nav-icon">⚙️</span>
-                <span class="nav-label">Settings</span>
+                <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-settings"/></svg></span>
+                <span class="nav-label" data-i18n="options.settings">Settings</span>
             </button>
             <button class="nav-tab" data-tab="data">
-                <span class="nav-icon">💾</span>
-                <span class="nav-label">Data</span>
+                <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-save"/></svg></span>
+                <span class="nav-label" data-i18n="options.data">Data</span>
             </button>
             <button class="nav-tab" data-tab="about">
-                <span class="nav-icon">ℹ️</span>
-                <span class="nav-label">About</span>
+                <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-info"/></svg></span>
+                <span class="nav-label" data-i18n="options.about">About</span>
             </button>
         </nav>
 
@@ -42,11 +42,11 @@
              <section id="favoritesTab" class="tab-pane active">
                 <!-- Combined Folder and Favorites Management -->
                 <div class="section-header">
-                    <span class="section-title">Folders & Favorites</span>
+                    <span class="section-title" data-i18n="options.folders_favorites">Folders & Favorites</span>
                     <div class="header-actions">
-                        <button id="manageFolderPriorityBtn" class="btn-secondary">Priority Order</button>
-                        <button id="addFolderBtn" class="btn-secondary">Add Folder</button>
-                        <button id="addFavouriteBtn" class="btn-primary">Add Favourite</button>
+                        <button id="manageFolderPriorityBtn" class="btn-secondary" data-i18n="options.priority_order">Priority Order</button>
+                        <button id="addFolderBtn" class="btn-secondary" data-i18n="options.add_folder">Add Folder</button>
+                        <button id="addFavouriteBtn" class="btn-primary" data-i18n="options.add_favourite">Add Favourite</button>
                     </div>
                 </div>
                 <div class="section-group">
@@ -63,13 +63,13 @@
             <!-- Settings Tab -->
             <section id="settingsTab" class="tab-pane">
                 <div class="section-header">
-                    <span class="section-title">App Settings</span>
+                    <span class="section-title" data-i18n="options.app_settings">App Settings</span>
                 </div>
                 <div class="section-group">
                     <div class="list-item">
                         <div class="list-content">
-                            <div class="list-title">Dark Mode (Beta)</div>
-                            <div class="list-subtitle">Enable dark theme for the extension</div>
+                            <div class="list-title" data-i18n="settings.dark_mode">Dark Mode</div>
+                            <div class="list-subtitle" data-i18n="settings.dark_mode_desc">Enable dark theme for the extension</div>
                         </div>
                         <div class="list-trailing">
                              <button class="toggle-btn" id="setting-dark-mode" type="button">
@@ -79,8 +79,20 @@
                     </div>
                     <div class="list-item">
                         <div class="list-content">
-                            <div class="list-title">Auto Refresh (30s)</div>
-                            <div class="list-subtitle">Automatically refresh ETA data every 30 seconds</div>
+                            <div class="list-title" data-i18n="settings.language">Language</div>
+                            <div class="list-subtitle" data-i18n="settings.language_desc">Choose display language</div>
+                        </div>
+                        <div class="list-trailing">
+                            <select class="lang-select" id="setting-lang" style="padding:6px 10px;border:1px solid var(--separator-color);border-radius:8px;background:var(--surface-color);color:var(--text-primary);font-size:13px;font-family:inherit;cursor:pointer;">
+                                <option value="en">English</option>
+                                <option value="zh-HK">繁體中文</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="list-content">
+                            <div class="list-title" data-i18n="settings.auto_refresh">Auto Refresh (30s)</div>
+                            <div class="list-subtitle" data-i18n="settings.auto_refresh_desc">Automatically refresh ETA data every 30 seconds</div>
                         </div>
                         <div class="list-trailing">
                              <button class="toggle-btn active" id="setting-auto-refresh" type="button">
@@ -90,23 +102,23 @@
                     </div>
                     <div class="list-item">
                         <div class="list-content">
-                            <div class="list-title">Test Notification</div>
-                            <div class="list-subtitle">Send a test notification to verify functionality</div>
+                            <div class="list-title" data-i18n="options.test_notification">Test Notification</div>
+                            <div class="list-subtitle" data-i18n="options.test_notification_desc">Send a test notification to verify functionality</div>
                         </div>
                         <div class="list-trailing">
-                             <button id="testNotificationBtn" class="btn-secondary">Test</button>
+                             <button id="testNotificationBtn" class="btn-secondary" data-i18n="options.test">Test</button>
                         </div>
                     </div>
                     <div class="list-item">
                         <div class="list-content">
-                            <div class="list-title">Version</div>
+                            <div class="list-title" data-i18n="options.version">Version</div>
                         </div>
                         <div class="list-trailing">1.2.0</div>
                     </div>
                     <div class="list-item" id="clear-data-btn">
                         <div class="list-content">
-                            <div class="list-title" style="color: var(--danger-color);">Reset All Data</div>
-                            <div class="list-subtitle">Remove all favorites and history</div>
+                            <div class="list-title" style="color: var(--danger-color);" data-i18n="settings.reset_all">Reset All Data</div>
+                            <div class="list-subtitle" data-i18n="settings.reset_desc">Remove all favorites and history</div>
                         </div>
                     </div>
                 </div>
@@ -115,52 +127,52 @@
             <!-- Data Management Tab -->
             <section id="dataTab" class="tab-pane">
                 <div class="section-header">
-                    <span class="section-title">Backup & Restore</span>
+                    <span class="section-title" data-i18n="options.backup_restore">Backup & Restore</span>
                 </div>
                 <div class="section-group">
                     <div class="list-item">
                         <div class="list-content">
-                            <div class="list-title">Export Data</div>
-                            <div class="list-subtitle">Save your favorites to a file</div>
+                            <div class="list-title" data-i18n="options.export_data">Export Data</div>
+                            <div class="list-subtitle" data-i18n="options.export_desc">Save your favorites to a file</div>
                         </div>
                         <div class="list-trailing">
-                             <button id="exportAllBtn" class="btn-secondary">Export JSON</button>
+                             <button id="exportAllBtn" class="btn-secondary" data-i18n="options.export_json">Export JSON</button>
                         </div>
                     </div>
                     
                     <div class="list-item" style="flex-direction: column; align-items: stretch; gap: 10px;">
                         <div class="list-content">
-                            <div class="list-title">Import Data</div>
-                            <div class="list-subtitle">Restore from a backup file</div>
+                            <div class="list-title" data-i18n="options.import_data">Import Data</div>
+                            <div class="list-subtitle" data-i18n="options.import_desc">Restore from a backup file</div>
                         </div>
                          <div style="display: flex; gap: 10px;">
                             <input type="file" id="importFile" accept=".json" class="form-input" style="flex:1;">
-                            <button id="importBtn" class="btn-primary">Import</button>
+                            <button id="importBtn" class="btn-primary" data-i18n="options.import">Import</button>
                         </div>
                     </div>
                 </div>
 
                 <div class="section-header">
-                    <span class="section-title danger">Danger Zone</span>
+                    <span class="section-title danger" data-i18n="options.danger_zone">Danger Zone</span>
                 </div>
                 <div class="section-group">
                      <div class="list-item">
                         <div class="list-content">
-                            <div class="list-title" style="color: var(--danger-color);">Clear All Data</div>
-                            <div class="list-subtitle">Remove all favorites and history</div>
+                            <div class="list-title" style="color: var(--danger-color);" data-i18n="options.clear_all">Clear All Data</div>
+                            <div class="list-subtitle" data-i18n="options.clear_all_desc">Remove all favorites and history</div>
                         </div>
                         <div class="list-trailing">
-                             <button id="clearAllBtn" class="btn-danger">Clear Everything</button>
+                             <button id="clearAllBtn" class="btn-danger" data-i18n="options.clear_everything">Clear Everything</button>
                         </div>
                     </div>
                 </div>
                 
                 <div class="section-header">
-                    <span class="section-title">Storage Usage</span>
+                    <span class="section-title" data-i18n="options.storage_usage">Storage Usage</span>
                 </div>
                 <div class="section-group">
                     <div class="list-item">
-                        <div id="storageInfo" class="list-title" style="font-weight: 400; font-size: 14px;">Calculating...</div>
+                        <div id="storageInfo" class="list-title" style="font-weight: 400; font-size: 14px;" data-i18n="options.calculating">Calculating...</div>
                     </div>
                 </div>
             </section>
@@ -168,9 +180,9 @@
             <!-- About Tab -->
             <section id="aboutTab" class="tab-pane">
                  <div class="section-group" style="text-align: center; padding: 40px;">
-                    <h2 style="margin-bottom: 10px;">🚌 EasyETA_HK</h2>
-                    <p style="color: var(--text-secondary); margin-bottom: 20px;">Version 1.1.0</p>
-                    <p>A simple, fast, and privacy-focused KMB bus tracker for Hong Kong.</p>
+                    <h2 style="margin-bottom: 10px;"><svg class="icon icon-inline" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-bus"/></svg> EasyETA_HK</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">Version 1.2.0</p>
+                    <p data-i18n="about.description">A fast, privacy-focused Hong Kong bus tracker supporting KMB, CTB, and GMB.</p>
                 </div>
             </section>
         </main>
@@ -304,6 +316,7 @@
     </div>
 
     <script src="../scripts/storage.js"></script>
+    <script src="../scripts/i18n.js"></script>
     <script src="../scripts/api.js"></script>
     <script src="options.js"></script>
 </body>

@@ -1,0 +1,42 @@
+{
+  "appName": {
+    "message": "EasyETA_HK",
+    "description": "擴充功能名稱"
+  },
+  "appDesc": {
+    "message": "智能香港公共交通工具 ETA 查詢器，支援進階規則編程及通知",
+    "description": "擴充功能描述"
+  },
+  "searchPlaceholder": {
+    "message": "搜尋路線號碼...",
+    "description": "搜尋輸入提示"
+  },
+  "favorites": {
+    "message": "我的最愛",
+    "description": "最愛標籤"
+  },
+  "routes": {
+    "message": "路線",
+    "description": "路線標籤"
+  },
+  "settings": {
+    "message": "設定",
+    "description": "設定連結"
+  },
+  "noFavorites": {
+    "message": "尚未加入最愛。搜尋路線開始使用！",
+    "description": "空白最愛狀態"
+  },
+  "arriving": {
+    "message": "即將到達",
+    "description": "巴士即將到達"
+  },
+  "mins": {
+    "message": "分鐘",
+    "description": "分鐘縮寫"
+  },
+  "min": {
+    "message": "分鐘",
+    "description": "分鐘單數"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "appName": {
+    "message": "EasyETA_HK",
+    "description": "Extension name"
+  },
+  "appDesc": {
+    "message": "Smart Hong Kong public transport ETA checker with advanced rule programming and notifications",
+    "description": "Extension description"
+  },
+  "searchPlaceholder": {
+    "message": "Search route number...",
+    "description": "Search input placeholder"
+  },
+  "favorites": {
+    "message": "Favorites",
+    "description": "Favorites tab"
+  },
+  "routes": {
+    "message": "Routes",
+    "description": "Routes tab"
+  },
+  "settings": {
+    "message": "Settings",
+    "description": "Settings link"
+  },
+  "noFavorites": {
+    "message": "No favorites yet. Search for a route to get started!",
+    "description": "Empty favorites state"
+  },
+  "arriving": {
+    "message": "Arriving",
+    "description": "Bus arriving now"
+  },
+  "mins": {
+    "message": "mins",
+    "description": "Minutes abbreviation"
+  },
+  "min": {
+    "message": "min",
+    "description": "Minute singular"
+  }
+}

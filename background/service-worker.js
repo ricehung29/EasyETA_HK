@@ -21,6 +21,14 @@ const Storage = {
         }
     },
 
+    async setMultiple(items) {
+        try {
+            await chrome.storage.local.set(items);
+        } catch (error) {
+            console.error('Error setting multiple values:', error);
+        }
+    },
+
     async getRules() {
         const rules = await this.get('rules');
         return rules || [];
@@ -198,14 +206,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
 });
 
-// Handle action (toolbar icon) clicks
-// Note: chrome.action.onClicked will NOT fire if a popup is defined in manifest.json
-// which is what we want now (standard popup behavior)
-/*
-chrome.action.onClicked.addListener(async (tab) => {
-    // Standard behavior is now popup
-});
-*/
+// Handle action (toolbar icon) clicks — no-op, popup is defined in manifest
 // Initialize extension with default data
 async function initializeExtension() {
     const defaults = {
@@ -397,7 +398,7 @@ async function showNotification(action, context) {
     
     const notificationOptions = {
         type: notificationType,
-        iconUrl: '../icons/icon128.png',
+        iconUrl: chrome.runtime.getURL('icons/icon128.png'),
         title: title,
         message: message,
         contextMessage: 'EasyETA_HK - Hong Kong Bus Tracker',
@@ -560,20 +561,6 @@ async function refreshETA(stopId) {
         return [];
     }
 }
-
-// Handle messages from popup/options
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-    if (message.action === 'testNotification') {
-        try {
-            await executeAction(message.notificationAction, message.context);
-            sendResponse({ success: true });
-        } catch (error) {
-            console.error('Test notification failed:', error);
-            sendResponse({ success: false, error: error.message });
-        }
-    }
-    return true; // Keep message channel open for async response
-});
 
 // Start rule checking when service worker starts
 try {
