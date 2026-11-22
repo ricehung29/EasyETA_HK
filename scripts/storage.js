@@ -261,7 +261,11 @@ const Storage = {
      */
     async getSettings() {
         const settings = await this.get('settings');
-        return settings || this.getDefaultSettings();
+        const sync = await chrome.storage.sync.get(['theme', 'language', 'autoRefresh']);
+        const result = { ...this.getDefaultSettings(), ...(settings || {}) };
+        for (const key of ['theme', 'language', 'autoRefresh']) if (sync[key] !== undefined) result[key] = sync[key];
+        result.notifications = { ...this.getDefaultSettings().notifications, ...(settings?.notifications || {}) };
+        return result;
     },
 
     /**
@@ -270,7 +274,11 @@ const Storage = {
      * @returns {Promise<boolean>} Success status
      */
     async saveSettings(settings) {
-        return await this.set('settings', settings);
+        const ok = await this.set('settings', settings);
+        const sync = {};
+        for (const key of ['theme', 'language', 'autoRefresh']) if (settings[key] !== undefined) sync[key] = settings[key];
+        if (Object.keys(sync).length) await chrome.storage.sync.set(sync);
+        return ok;
     },
 
     /**

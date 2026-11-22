@@ -1,1262 +1,726 @@
-// EasyETA Side Panel Logic
-// Redesigned App-like Experience
+// EasyETA popup — home / search / route details / settings.
+
+const PROVIDERS = { kmb: 'KMB', ctb: 'CTB', gmb: 'GMB' };
+const REFRESH_MS = 30000;
+
+const $ = (id) => document.getElementById(id);
 
 class App {
     constructor() {
-        this.currentView = 'view-home';
         this.favorites = [];
         this.folders = [];
-        this.searchDebounce = null;
-        this.activeEtaIntervals = []; // To clear intervals when leaving view
-        this.currentFavTab = 'all'; // Current favorite tab
-        this.editFavorite = null; // For editing existing favorites
-        this.searchMode = 'route'; // 'route' or 'stop'
-        this.stopSearchTimeout = null;
-        this.autocompleteData = []; // cached stop autocomplete data
-
-        this.init();
+        this.view = 'view-home';
+        this.searchMode = 'route';
+        this.searchTimer = null;
+        this.refreshTimer = null;
+        this.variant = null;
+        this.stops = [];
+        this.etaMap = new Map();
+        this.expanded = new Set();
+        this.favTab = 'all';
+        this.recentExpanded = false;
     }
 
     async init() {
         await I18n.init();
-        this.setupNavigation();
-        this.setupSearch();
-        this.setupSearchModeToggle();
-        this.setupAutocomplete();
-        this.setupFavorites();
-        this.setupSectionToggles();
-        this.setupSettings();
+        this.applyTheme();
+        this.bindNav();
+        this.bindSearch();
+        this.bindHeader();
+        this.renderSettings();
         await this.loadData();
-        this.renderHome();
+        await this.renderHome();
     }
+
+    // ---------- data ----------
 
     async loadData() {
-        try {
-            this.favorites = await Storage.getFavorites() || [];
-            this.folders = await Storage.getFolders() || [];
-
-            // Check if we're editing a favorite
-            const editData = await chrome.storage.local.get('editFavorite');
-            if (editData.editFavorite) {
-                this.editFavorite = editData.editFavorite;
-                // Clear the edit data
-                await chrome.storage.local.remove('editFavorite');
-                // Navigate to search to allow editing
-                this.navigateTo('view-search');
-            }
-
-            // Pre-warm cache if needed
-        } catch (e) {
-            console.error("Load data error", e);
-        }
+        this.favorites = (await Storage.getFavorites()) || [];
+        this.folders = (await Storage.getFolders()) || [];
     }
 
-    getFolderTimeslotLabel(folderId) {
-        if (!folderId) return '';
-        const folder = this.folders.find(f => f.id === folderId);
-        if (!folder || !folder.timeslot) return '';
-
-        if (folder.timeslot.perday) {
-            // For per-day, show current day's time if available
-            const now = new Date();
-            const currentDay = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase();
-            const dayTimes = folder.timeslot.perday[currentDay];
-            if (dayTimes) {
-                return `${dayTimes.start}-${dayTimes.end}`;
-            }
-            return 'Per-day';
-        } else {
-            return `${folder.timeslot.startTime}-${folder.timeslot.endTime}`;
-        }
-    }
-
-    getCurrentActiveFolders() {
+    getActiveFolders() {
         const now = new Date();
-        const currentDay = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase(); // 'monday', etc.
-        const currentTime = now.toTimeString().slice(0, 5); // HH:MM
-
-        const activeFolders = this.folders.filter(folder => {
-            if (!folder.timeslot) return false;
-            if (folder.timeslot.perday) {
-                const dayTimes = folder.timeslot.perday[currentDay];
-                if (!dayTimes) return false;
-                return currentTime >= dayTimes.start && currentTime <= dayTimes.end;
-            } else if (folder.timeslot.days) {
-                if (!folder.timeslot.days.includes(currentDay)) return false;
-                return currentTime >= folder.timeslot.startTime && currentTime <= folder.timeslot.endTime;
-            }
-            return false;
-        });
-
-        // Sort by priority (lower number = higher priority)
-        return activeFolders.sort((a, b) => (a.priority || 999) - (b.priority || 999));
-    }
-
-    setupNavigation() {
-        const navItems = document.querySelectorAll('.nav-item');
-        navItems.forEach(item => {
-            item.addEventListener('click', () => {
-                const target = item.dataset.target;
-                if (target === 'view-settings') {
-                    this.navigateTo('view-settings');
-                    return;
+        const day = now.toLocaleDateString('en', { weekday: 'long' }).toLowerCase();
+        const time = now.toTimeString().slice(0, 5);
+        return this.folders
+            .filter(f => {
+                const t = f.timeslot;
+                if (!t) return false;
+                if (t.perday) {
+                    const d = t.perday[day];
+                    return !!d && time >= d.start && time <= d.end;
                 }
-                this.navigateTo(target);
-            });
-        });
-
-        // Settings item in the settings view
-        const settingsItem = document.getElementById('settings-item');
-        if (settingsItem) {
-            settingsItem.addEventListener('click', () => {
-                chrome.runtime.openOptionsPage();
-            });
-        }
-
-        const backBtn = document.getElementById('back-btn');
-        if (backBtn) {
-            backBtn.addEventListener('click', () => {
-                this.navigateTo(this.previousView || 'view-home');
-            });
-        }
+                return (t.days || []).includes(day) && time >= t.startTime && time <= t.endTime;
+            })
+            .sort((a, b) => (a.priority || 999) - (b.priority || 999));
     }
 
-    navigateTo(viewId) {
-        // Hide all views
-        document.querySelectorAll('.view').forEach(el => {
-            el.classList.remove('active');
-            if(el.id !== viewId) el.classList.add('hidden'); // Ensure hidden is applied
+    variantOfFav(fav) {
+        return {
+            _provider: fav.provider, route: fav.route, dir: fav.dir,
+            service_type: fav.service_type, route_id: fav.route_id, region: fav.region,
+            orig_tc: fav.orig_tc, orig_en: fav.orig_en, dest_tc: fav.dest_tc, dest_en: fav.dest_en
+        };
+    }
+
+    // ---------- chrome ----------
+
+    applyTheme() {
+        chrome.storage.sync.get('theme', ({ theme }) => {
+            document.body.classList.toggle('dark-mode', theme === 'dark');
         });
+    }
 
-        // Show target
-        const targetView = document.getElementById(viewId);
-        if (targetView) {
-            targetView.classList.remove('hidden');
-            targetView.classList.add('active');
-        }
-
-        // Update Nav Bar state
+    bindNav() {
         document.querySelectorAll('.nav-item').forEach(item => {
-            if(item.dataset.target === viewId) item.classList.add('active');
-            else item.classList.remove('active');
+            item.addEventListener('click', () => this.navigate(item.dataset.target));
         });
-
-        // Handle edit mode for search view
-        if (viewId === 'view-search' && this.editFavorite) {
-            // Pre-populate search with current favorite data
-            const searchInput = document.getElementById('route-search-input');
-            if (searchInput) {
-                searchInput.value = this.editFavorite.route;
-                // Trigger search
-                this.performSearch(this.editFavorite.route);
-            }
-        }
-
-        // Store history for simple back
-        if (viewId !== 'view-details') {
-            this.previousView = viewId;
-        }
-
-        this.currentView = viewId;
-
-        // Refresh data based on view
-        if (viewId === 'view-home') this.renderHome();
-
-        // Clear ETA intervals if leaving details
-        if (viewId !== 'view-details') {
-            this.clearEtaIntervals();
-        }
+        document.querySelectorAll('[data-section]').forEach(t => {
+            t.addEventListener('click', () => {
+                this.recentExpanded = !this.recentExpanded;
+                t.classList.toggle('expanded', this.recentExpanded);
+                this.renderRecent();
+            });
+        });
     }
 
-    // --- HOME VIEW ---
-    renderFavoriteTabs() {
-        const tabGroup = document.querySelector('.tab-group');
-
-        const activeFolders = this.getCurrentActiveFolders();
-        let tabs;
-        if (activeFolders.length > 0) {
-            tabs = activeFolders.map(folder => ({ id: folder.id, name: folder.name, icon: '<svg class="icon icon-xs" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-folder"/></svg>', color: folder.color }));
-        } else {
-            tabs = [{ id: 'all', name: I18n.t('home.all_favorites'), icon: '<svg class="icon icon-xs" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-clock"/></svg>' }];
-        }
-
-        tabGroup.innerHTML = tabs.map(tab =>
-            `<button class="tab-btn ${this.currentFavTab === tab.id ? 'active' : ''}"
-                     data-fav-tab="${tab.id}"
-                     style="${tab.color ? `--tab-color: ${tab.color}` : ''}">
-                ${tab.icon} ${tab.name}
-            </button>`
-        ).join('');
-
-        // Re-attach event listeners
-        this.setupFavorites();
+    bindHeader() {
+        $('back-btn').addEventListener('click', () => this.navigate('view-home'));
+        $('refresh-btn').addEventListener('click', () => this.variant && this.loadStops(this.variant));
     }
+
+    navigate(view) {
+        this.view = view;
+        document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === view));
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.target === view));
+
+        const detail = view === 'view-details';
+        $('back-btn').classList.toggle('hidden', !detail);
+        $('refresh-btn').classList.toggle('hidden', !detail);
+        $('header-title').classList.toggle('hidden', detail);
+        $('header-sub').classList.toggle('hidden', !detail);
+
+        if (!detail) {
+            this.stopRefresh();
+            $('header-title').textContent = 'EasyETA';
+            $('header-sub').textContent = '';
+            $('header-sub').classList.remove('visible');
+        }
+        if (view === 'view-home') this.renderHome();
+        if (view === 'view-search') setTimeout(() => $('search-input').focus(), 50);
+    }
+
+    // ---------- home ----------
 
     async renderHome() {
-        // Render tabs first
-        this.renderFavoriteTabs();
-
-        // Ensure currentFavTab is valid
-        const currentActiveFolders = this.getCurrentActiveFolders();
-        const validTabs = currentActiveFolders.length > 0 ? currentActiveFolders.map(f => f.id) : ['all'];
-        if (!validTabs.includes(this.currentFavTab)) {
-            this.currentFavTab = validTabs[0];
-        }
-
-        const favList = document.getElementById('favorites-list');
-        const recentList = document.getElementById('recent-list');
-
-        // Filter favorites by current tab
-        let filteredFavorites = this.favorites;
-        if (this.currentFavTab !== 'all') {
-            // It's a folder
-            filteredFavorites = this.favorites.filter(fav => fav.folder === this.currentFavTab);
-        }
-
-        // Render Favorites
-        if (filteredFavorites.length === 0) {
-            favList.innerHTML = `<div class="list-item"><div class="list-content"><div class="list-subtitle">${I18n.t('home.no_favorites')}</div></div></div>`;
-        } else {
-            // Render favorites with ETA data
-            const favoritePromises = filteredFavorites.map(async (fav) => {
-                let etaData = [];
-                try {
-                    // Get ETA data for this specific stop and route
-                    etaData = await API.getStopRouteETA(fav.stopId, fav.route, '1', fav.provider || null);
-                } catch (error) {
-                    console.warn(`Failed to get ETA for ${fav.route} at ${fav.stopId}:`, error);
-                }
-
-                // Format ETA display
-                let etaLines = [];
-                if (etaData.length === 0) {
-                    etaLines = [{ text: '*', isScheduled: true }];
-                } else {
-                    etaLines = etaData.slice(0, 3).map((eta) => {
-                        const etaText = eta.formatted?.display || '*';
-                        const isScheduled = etaText === '*' || !eta.eta;
-                        // Show remarks if they exist and are not "scheduled bus"
-                        let displayText = etaText;
-                        if (eta.rmk_tc && eta.rmk_tc !== '預定班次' && eta.rmk_tc !== 'scheduled bus') {
-                            displayText = `${etaText} (${eta.rmk_tc})`;
-                        }
-                        return { text: displayText, isScheduled };
-                    });
-                }
-
-                return `
-                    <div class="list-item favorite-item" data-id="${fav.id}">
-                        <div class="list-content">
-                            <div class="list-title">${fav.route} <span class="badge badge-primary">${I18n.t('details.to', {dest: fav.dest || '...'})}</span></div>
-                            <div class="list-subtitle">${fav.stopName}</div>
-                        </div>
-                        <div class="eta-column">
-                            ${etaLines.map(line => `<div class="eta-line${line.isScheduled ? ' scheduled' : ''}">${line.text}</div>`).join('')}
-                        </div>
-                    </div>
-                `;
-            });
-
-            // Wait for all ETA data to be fetched
-            const favoriteHtmls = await Promise.all(favoritePromises);
-            favList.innerHTML = favoriteHtmls.join('');
-
-            // Add click listeners
-            favList.querySelectorAll('.favorite-item').forEach(el => {
-                el.addEventListener('click', async () => {
-                    const favId = el.dataset.id;
-                    const fav = this.favorites.find(f => f.id === favId);
-                    if (fav) {
-                        // Find the variant for this favorite
-                        const variants = await API.getRouteVariants(fav.route);
-                        const variant = variants.find(v => (v.dest_tc === fav.dest || v.dest_en === fav.dest));
-                        if (variant) {
-                            await this.openRouteDetails(variant);
-                            // After loading, expand the specific stop
-                            setTimeout(() => {
-                                const stopEl = document.querySelector(`[data-stop-id="${fav.stopId}"]`);
-                                if (stopEl) {
-                                    stopEl.classList.add('expanded');
-                                    const detailsEl = stopEl.querySelector('.stop-details');
-                                    const seq = parseInt(stopEl.dataset.seq);
-                                    if (detailsEl) {
-                                        this.renderStopEta({stop: fav.stopId, seq: seq}, variant, `details-${fav.stopId}-${seq}`);
-                                    }
-                                }
-                            }, 500);
-                        }
-                    }
-                });
-            });
-        }
-
-        // Render Recent
-        const recents = await Storage.getRecentSearches() || [];
-        const recentSectionTitle = document.querySelector('.section-title[data-section="recent"]');
-        const isRecentExpanded = recentSectionTitle.classList.contains('expanded');
-
-        if (recents.length === 0) {
-            recentList.innerHTML = `<div class="list-item"><div class="list-content"><div class="list-subtitle">${I18n.t('home.no_recent')}</div></div></div>`;
-        } else {
-            // Show all recents if expanded, otherwise show first 3
-            const displayCount = isRecentExpanded ? recents.length : 3;
-            recentList.innerHTML = recents.slice(0, displayCount).map(r => `
-                <div class="list-item recent-item" data-route="${r.route}">
-                    <div class="list-content">
-                        <div class="list-title">${r.route}</div>
-                        <div class="list-subtitle">${I18n.t('home.last_viewed', {date: new Date(r.searchedAt).toLocaleDateString()})}</div>
-                    </div>
-                </div>
-            `).join('');
-
-            // Add "Show more" button if there are more items and not expanded
-            if (!isRecentExpanded && recents.length > 3) {
-                recentList.innerHTML += `
-                    <div class="list-item show-more-item">
-                        <div class="list-content">
-                            <div class="list-subtitle">${I18n.t('home.show_more', {count: recents.length - 3})}</div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            recentList.querySelectorAll('.recent-item').forEach(el => {
-                el.addEventListener('click', () => {
-                    this.navigateTo('view-search');
-                    this.performSearch(el.dataset.route);
-                });
-            });
-
-            // Add click handler for show more
-            const showMoreItem = recentList.querySelector('.show-more-item');
-            if (showMoreItem) {
-                showMoreItem.addEventListener('click', () => {
-                    recentSectionTitle.classList.add('expanded');
-                    this.renderHome();
-                });
-            }
-        }
+        await this.renderFavTabs();
+        await this.renderFavorites();
+        this.renderRecent();
     }
 
-    // --- SEARCH VIEW ---
-    setupSearchModeToggle() {
-        const toggle = document.getElementById('search-mode-toggle');
-        if (!toggle) return;
-        toggle.addEventListener('click', (e) => {
-            const btn = e.target.closest('.search-mode-btn');
-            if (!btn) return;
-            toggle.querySelectorAll('.search-mode-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            this.searchMode = btn.dataset.mode;
-            const input = document.getElementById('route-search-input');
-            if (this.searchMode === 'stop') {
-                input.dataset.i18nPlaceholder = 'search.placeholder_stop';
-                input.placeholder = I18n.t('search.placeholder_stop');
-            } else {
-                input.dataset.i18nPlaceholder = 'search.placeholder';
-                input.placeholder = I18n.t('search.placeholder');
+    async renderFavTabs() {
+        const tabsEl = $('fav-tabs');
+        const active = this.getActiveFolders();
+        const activeIds = new Set(active.map(f => f.id));
+
+        if (this.folders.length === 0) {
+            tabsEl.classList.add('hidden');
+            this.favTab = 'all';
+            return;
+        }
+
+        const ordered = [...active, ...this.folders.filter(f => !activeIds.has(f.id))];
+        const tabs = [{ id: 'all', name: I18n.t('home.all_favorites'), active: false }]
+            .concat(ordered.map(f => ({ id: f.id, name: f.name, color: f.color, active: activeIds.has(f.id) })));
+
+        if (!tabs.some(t => t.id === this.favTab)) this.favTab = 'all';
+        tabsEl.classList.remove('hidden');
+        tabsEl.innerHTML = tabs.map(t => `
+            <button class="tab-btn ${this.favTab === t.id ? 'active' : ''} ${t.active ? 'is-live' : ''}"
+                    data-fav-tab="${t.id}" ${t.color ? `style="--tab-color:${t.color}"` : ''}>
+                ${t.active ? '<span class="live-dot"></span>' : ''}${escapeHtml(t.name)}
+            </button>`).join('');
+
+        tabsEl.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.favTab = btn.dataset.favTab;
+                this.renderHome();
+            });
+        });
+    }
+
+    async renderFavorites() {
+        const list = $('favorites-list');
+        const favs = this.favTab === 'all'
+            ? this.favorites
+            : this.favorites.filter(f => f.folder === this.favTab);
+
+        if (favs.length === 0) {
+            list.innerHTML = `<div class="empty-state">
+                <svg class="icon icon-lg" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-bus"/></svg>
+                <p>${I18n.t('home.no_favorites')}</p>
+                <button class="link-btn" id="empty-search">${I18n.t('home.start_search')}</button>
+            </div>`;
+            const go = $('empty-search');
+            if (go) go.addEventListener('click', () => this.navigate('view-search'));
+            return;
+        }
+
+        list.innerHTML = favs.map(fav => `
+            <div class="list-item fav-row" data-id="${fav.id}">
+                <div class="route-badge ${fav.provider}">${escapeHtml(fav.route)}</div>
+                <div class="list-content">
+                    <div class="list-title">${escapeHtml(localized(fav.dest_tc, fav.dest_en) || fav.dest || '')}</div>
+                    <div class="list-subtitle">${escapeHtml(localized(fav.stopNameTc, fav.stopName) || fav.stopName || '')}</div>
+                </div>
+                <div class="eta-chips" data-eta-for="${fav.id}"><span class="eta-chip muted">···</span></div>
+            </div>`).join('');
+
+        list.querySelectorAll('.fav-row').forEach(row => {
+            row.addEventListener('click', async () => {
+                const fav = this.favorites.find(f => f.id === row.dataset.id);
+                if (fav) this.openDetails(this.variantOfFav(fav), { focusStop: fav.stopId });
+            });
+        });
+
+        // ETAs land per favourite as they arrive, so the list is never blocked.
+        favs.forEach(async fav => {
+            const etas = await API.getStopRouteEtas(fav.stopId, this.variantOfFav(fav));
+            const slot = list.querySelector(`[data-eta-for="${CSS.escape(fav.id)}"]`);
+            if (slot) slot.innerHTML = etaChips(etas);
+        });
+    }
+
+    renderRecent() {
+        const list = $('recent-list');
+        const section = document.querySelector('[data-section="recent"]');
+        Storage.getRecentSearches().then(recents => {
+            if (!recents.length) {
+                list.innerHTML = `<div class="list-item"><div class="list-content"><div class="list-subtitle">${I18n.t('home.no_recent')}</div></div></div>`;
+                return;
             }
-            document.getElementById('search-results').innerHTML = '';
-            document.getElementById('autocomplete-dropdown').style.display = 'none';
+            const shown = this.recentExpanded ? recents : recents.slice(0, 3);
+            list.innerHTML = shown.map(r => `
+                <div class="list-item recent-row" data-route="${escapeHtml(r.route)}">
+                    <div class="route-badge ${r._provider || 'kmb'}">${escapeHtml(r.route)}</div>
+                    <div class="list-content">
+                        <div class="list-title">${escapeHtml(localized(r.dest_tc, r.dest_en) || '')}</div>
+                        <div class="list-subtitle">${I18n.t('home.last_viewed', { date: new Date(r.searchedAt).toLocaleDateString() })}</div>
+                    </div>
+                </div>`).join('');
+
+            list.querySelectorAll('.recent-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    this.navigate('view-search');
+                    $('search-input').value = row.dataset.route;
+                    this.runSearch(row.dataset.route);
+                });
+            });
+
+            if (!this.recentExpanded && recents.length > 3) {
+                const more = document.createElement('div');
+                more.className = 'list-item show-more-item';
+                more.innerHTML = `<div class="list-content"><div class="list-subtitle">${I18n.t('home.show_more', { count: recents.length - 3 })}</div></div>`;
+                more.addEventListener('click', () => {
+                    this.recentExpanded = true;
+                    section.classList.add('expanded');
+                    this.renderRecent();
+                });
+                list.appendChild(more);
+            }
+        });
+    }
+
+    // ---------- search ----------
+
+    bindSearch() {
+        const input = $('search-input');
+        input.addEventListener('input', () => {
+            const q = input.value.trim();
+            $('search-clear').classList.toggle('hidden', !q);
+            clearTimeout(this.searchTimer);
+            if (!q) {
+                $('search-results').innerHTML = this.searchHint();
+                return;
+            }
+            this.searchTimer = setTimeout(() => this.runSearch(q), 280);
+        });
+
+        $('search-clear').addEventListener('click', () => {
             input.value = '';
+            $('search-clear').classList.add('hidden');
+            $('search-results').innerHTML = this.searchHint();
             input.focus();
         });
-    }
 
-    setupSearch() {
-        const input = document.getElementById('route-search-input');
-        input.addEventListener('input', (e) => {
-            clearTimeout(this.searchDebounce);
-            this.searchDebounce = setTimeout(() => {
-                this.performSearch(e.target.value);
-            }, this.searchMode === 'stop' ? 300 : 500);
-        });
-    }
-
-    setupAutocomplete() {
-        const input = document.getElementById('route-search-input');
-        const dropdown = document.getElementById('autocomplete-dropdown');
-
-        input.addEventListener('input', () => {
-            this.handleAutocomplete();
+        $('search-mode-toggle').addEventListener('click', (e) => {
+            const btn = e.target.closest('.segment-btn');
+            if (!btn) return;
+            document.querySelectorAll('#search-mode-toggle .segment-btn').forEach(b => b.classList.toggle('active', b === btn));
+            this.searchMode = btn.dataset.mode;
+            input.placeholder = I18n.t(this.searchMode === 'stop' ? 'search.placeholder_stop' : 'search.placeholder');
+            input.value = '';
+            $('search-clear').classList.add('hidden');
+            $('search-results').innerHTML = this.searchHint();
+            input.focus();
         });
 
-        input.addEventListener('blur', () => {
-            setTimeout(() => {
-                dropdown.style.display = 'none';
-            }, 200);
-        });
-
-        input.addEventListener('focus', () => {
-            if (dropdown.children.length > 0) {
-                dropdown.style.display = 'block';
-            }
-        });
+        $('search-results').innerHTML = this.searchHint();
     }
 
-    async handleAutocomplete() {
-        const input = document.getElementById('route-search-input');
-        const dropdown = document.getElementById('autocomplete-dropdown');
-        const query = input.value.trim();
-
-        if (!query || query.length < 2) {
-            dropdown.style.display = 'none';
-            return;
-        }
-
-        clearTimeout(this.stopSearchTimeout);
-        this.stopSearchTimeout = setTimeout(async () => {
-            try {
-                if (this.searchMode === 'stop') {
-                    const stops = await this.searchStopsByName(query);
-                    if (stops.length === 0) {
-                        dropdown.style.display = 'none';
-                        return;
-                    }
-                    dropdown.innerHTML = stops.slice(0, 10).map(stop => `
-                        <div class="autocomplete-item" data-stop-id="${stop.stop}" data-stop-name="${stop.name_en || stop.stop}" data-stop-name-tc="${stop.name_tc || ''}">
-                            <span class="autocomplete-stop-icon">🚏</span>
-                            <span class="autocomplete-stop-name">${stop.name_tc || stop.name_en || stop.stop}</span>
-                            <span class="autocomplete-route-tag">${stop.stop}</span>
-                        </div>
-                    `).join('');
-                    dropdown.style.display = 'block';
-
-                    dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
-                        item.addEventListener('click', () => {
-                            const stopId = item.dataset.stopId;
-                            const stopName = I18n.getLang() === 'zh-HK' ? item.dataset.stopNameTc || item.dataset.stopName : item.dataset.stopName;
-                            input.value = stopName;
-                            dropdown.style.display = 'none';
-                            this.performStopSearch(stopId, stopName);
-                        });
-                    });
-                } else {
-                    if (typeof API !== 'undefined' && API.searchRoutes) {
-                        const routes = await API.searchRoutes(query);
-                        if (!routes || routes.length === 0) {
-                            dropdown.style.display = 'none';
-                            return;
-                        }
-                        dropdown.innerHTML = routes.slice(0, 8).map(r => `
-                            <div class="autocomplete-item" data-route="${r.route}">
-                                <span class="autocomplete-route">${r.route}</span>
-                                <span class="autocomplete-dest">${I18n.t('details.to', {dest: r.dest_tc || r.dest_en || ''})}</span>
-                            </div>
-                        `).join('');
-                        dropdown.style.display = 'block';
-
-                        dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
-                            item.addEventListener('click', () => {
-                                input.value = item.dataset.route;
-                                dropdown.style.display = 'none';
-                                this.performSearch(item.dataset.route);
-                            });
-                        });
-                    }
-                }
-            } catch (e) {
-                console.error('Autocomplete error', e);
-                dropdown.style.display = 'none';
-            }
-        }, 200);
+    searchHint() {
+        return `<div class="empty-state"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-search"/></svg>
+            <p>${I18n.t(this.searchMode === 'stop' ? 'search.hint_stop' : 'search.hint_route')}</p></div>`;
     }
 
-    async searchStopsByName(query) {
-        const q = query.toLowerCase().trim();
-        if (typeof API !== 'undefined' && API.searchStops) {
-            try {
-                const stops = await API.searchStops(q);
-                if (stops && stops.length > 0) return stops;
-            } catch (e) {}
-        }
-
-        if (this.autocompleteData.length === 0) {
-            await this.buildStopCache();
-        }
-
-        return this.autocompleteData.filter(stop =>
-            (stop.name_en && stop.name_en.toLowerCase().includes(q)) ||
-            (stop.name_tc && stop.name_tc.includes(q)) ||
-            (stop.stop && stop.stop.includes(q))
-        ).slice(0, 20);
-    }
-
-    async buildStopCache() {
+    async runSearch(query) {
+        const box = $('search-results');
+        box.innerHTML = `<div class="loading-container"><div class="spinner"></div><span>${I18n.t('search.searching')}</span></div>`;
         try {
-            const cached = await chrome.storage.local.get('stopList');
-            if (cached.stopList && cached.stopList.data) {
-                this.autocompleteData = cached.stopList.data;
-                return;
-            }
-        } catch (_) {}
-
-        try {
-            console.log('Building stop cache (this may take a moment)...');
-            const allRoutes = await API.getAllRoutes();
-            const stopSet = new Map();
-            const routesToProcess = allRoutes.slice(0, 50);
-            for (const route of routesToProcess) {
-                const bound = route.bound === 'O' ? 'outbound' : 'inbound';
-                try {
-                    const stops = await API.getRouteStops(route.route, bound, route.service_type || '1');
-                    stops.forEach(s => {
-                        const key = s.stop;
-                        if (!stopSet.has(key)) {
-                            stopSet.set(key, {
-                                stop: s.stop,
-                                name_en: s.stopInfo?.name_en || `Stop ${s.stop}`,
-                                name_tc: s.stopInfo?.name_tc || `站點 ${s.stop}`
-                            });
-                        }
-                    });
-                } catch (_) {}
-            }
-            this.autocompleteData = Array.from(stopSet.values());
-            try {
-                await chrome.storage.local.set({ stopList: { data: this.autocompleteData, timestamp: Date.now() } });
-            } catch (_) {}
+            return this.searchMode === 'stop' ? await this.runStopSearch(query) : await this.runRouteSearch(query);
         } catch (e) {
-            console.warn('Failed to build stop cache:', e);
-            this.autocompleteData = [];
+            box.innerHTML = `<div class="empty-state"><p>${I18n.t('search.error', { message: escapeHtml(e.message) })}</p></div>`;
         }
     }
 
-    async performStopSearch(stopId, stopName) {
-        const container = document.getElementById('search-results');
-        container.innerHTML = `<div class="text-center" style="padding:20px;">${I18n.t('search.searching')}</div>`;
-
-        try {
-            const stopEtas = await API.getETA(stopId);
-            if (!stopEtas || stopEtas.length === 0) {
-                container.innerHTML = `<div class="text-center p-4">${I18n.t('search.no_results_stop')}</div>`;
-                return;
-            }
-
-            const routeMap = new Map();
-            stopEtas.forEach(eta => {
-                if (!routeMap.has(eta.route)) {
-                    routeMap.set(eta.route, []);
-                }
-                routeMap.get(eta.route).push(eta);
-            });
-
-            container.innerHTML = `<div class="section-title" style="margin-top:0;">🚏 ${stopName} (${stopId})</div>`;
-            routeMap.forEach((etas, route) => {
-                const card = document.createElement('div');
-                card.className = 'eta-card';
-                card.style.cursor = 'pointer';
-                card.innerHTML = `
-                    <div class="eta-header">
-                        <span style="font-size:18px;font-weight:600;color:var(--text-primary);">${route}</span>
-                        <div class="eta-times">
-                            ${etas.slice(0, 3).map(e => {
-                                const f = API.formatETA(e.eta);
-                                return `<span class="time-display small">${f.text}</span>`;
-                            }).join('')}
-                        </div>
-                    </div>
-                `;
-                card.addEventListener('click', async () => {
-                    const variants = await API.getRouteVariants(route);
-                    // For stop search: try KMB first, then CTB
-                    let variant = variants.find(v => v._provider === 'kmb') || variants[0] || { route, bound: 'O', service_type: '1' };
-                    await this.openRouteDetails(variant);
-                    setTimeout(() => {
-                        const stopEl = document.querySelector(`[data-stop-id="${stopId}"]`);
-                        if (stopEl) {
-                            stopEl.classList.add('expanded');
-                            const seq = parseInt(stopEl.dataset.seq);
-                            this.renderStopEta({stop: stopId, seq: seq}, variant, `details-${stopId}-${seq}`);
-                        }
-                    }, 500);
-                });
-                container.appendChild(card);
-            });
-        } catch (e) {
-            container.innerHTML = `<div class="text-center text-danger">${I18n.t('search.error', {message: e.message})}</div>`;
-        }
-    }
-
-    setupFavorites() {
-        const favTabs = document.querySelectorAll('[data-fav-tab]');
-        favTabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('[data-fav-tab]').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                this.currentFavTab = tab.dataset.favTab;
-                this.renderHome();
-            });
-        });
-    }
-
-    setupSectionToggles() {
-        const sectionTitles = document.querySelectorAll('.section-title[data-section]');
-        sectionTitles.forEach(title => {
-            title.addEventListener('click', () => {
-                const section = title.dataset.section;
-                const isExpanded = title.classList.contains('expanded');
-
-                if (isExpanded) {
-                    title.classList.remove('expanded');
-                } else {
-                    title.classList.add('expanded');
-                }
-
-                this.renderHome();
-            });
-        });
-    }
-
-    setupDarkMode() {
-        const toggle = document.getElementById('setting-dark-mode');
-        if (!toggle) return;
-
-        chrome.storage.sync.get('theme', (result) => {
-            const theme = result.theme || 'light';
-            if (theme === 'dark') {
-                toggle.checked = true;
-                document.body.classList.add('dark-mode');
-            } else {
-                toggle.checked = false;
-                document.body.classList.remove('dark-mode');
-            }
-        });
-
-        toggle.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                document.body.classList.add('dark-mode');
-                chrome.storage.sync.set({ theme: 'dark' });
-            } else {
-                document.body.classList.remove('dark-mode');
-                chrome.storage.sync.set({ theme: 'light' });
-            }
-        });
-    }
-
-    setupLanguage() {
-        const select = document.getElementById('setting-lang');
-        if (!select) return;
-
-        select.value = I18n.getLang();
-
-        select.addEventListener('change', async () => {
-            await I18n.setLang(select.value);
-            I18n.applyToDocument(); // Re-translate all static elements
-            this.renderFavoriteTabs();
-            this.renderHome();
-            const input = document.getElementById('route-search-input');
-            if (this.searchMode === 'stop') {
-                input.placeholder = I18n.t('search.placeholder_stop');
-            } else {
-                input.placeholder = I18n.t('search.placeholder');
-            }
-        });
-
-        I18n.onChange(() => {
-            select.value = I18n.getLang();
-        });
-    }
-
-    getTimeLabel(time) {
-        if (!time) return '';
-
-        const timeslot = this.timeslots.find(slot => slot.id === time);
-        if (timeslot) return timeslot.name;
-
-        const labels = {
-            morning: '<svg class="icon icon-xs" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-sunrise"/></svg> Morning',
-            afternoon: '<svg class="icon icon-xs" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-sunny"/></svg> Afternoon',
-            evening: '<svg class="icon icon-xs" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-moon-phase"/></svg> Evening'
-        };
-        return labels[time] || time;
-    }
-
-    getFolderTimeslotLabel(folderId) {
-        if (!folderId) return '';
-
-        const folder = this.folders.find(f => f.id === folderId);
-        if (folder && folder.timeslot) {
-            if (folder.timeslot.perday) {
-                return `Per-day: ${Object.entries(folder.timeslot.perday).map(([day, times]) => `${day.slice(0,3)}:${times.start}-${times.end}`).join(', ')}`;
-            } else if (folder.timeslot.days) {
-                return `${folder.timeslot.days.join(',')} ${folder.timeslot.startTime}-${folder.timeslot.endTime}`;
-            }
-        }
-
-        return '';
-    }
-
-    async addToFavourites(data) {
-        if (!data || typeof data !== 'object') {
-            console.error('Invalid data passed to addToFavourites:', data);
+    async runRouteSearch(query) {
+        const box = $('search-results');
+        const matches = await API.searchRoutes(query);
+        if (!matches.length) {
+            box.innerHTML = `<div class="empty-state"><p>${I18n.t('search.no_results')}</p></div>`;
             return;
         }
 
-        const { stopId, route, dest, stopName } = data;
+        box.innerHTML = '';
+        for (const match of matches.slice(0, 8)) {
+            const variants = await API.getRouteVariants(match.route);
+            if (!variants.length) continue;
 
-        if (!stopId || !route) {
-            console.error('Missing required data in addToFavourites:', data);
-            return;
-        }
-
-        const existing = this.favorites.find(f => f.stopId === stopId && f.route === route);
-        if (existing && (!this.editFavorite || existing.id !== this.editFavorite.id)) {
-            this.showModal({
-                title: I18n.t('fav.exists_title'),
-                message: I18n.t('fav.exists_message'),
-                confirmText: I18n.t('fav.ok')
-            });
-            return;
-        }
-
-        if (this.editFavorite) {
-            const index = this.favorites.findIndex(f => f.id === this.editFavorite.id);
-            if (index !== -1) {
-                this.favorites[index] = {
-                    ...this.favorites[index],
-                    route: route,
-                    dest: dest,
-                    stopId: stopId,
-                    stopName: stopName
-                };
-                await Storage.saveFavorites(this.favorites);
-
-                this.showModal({
-                    title: I18n.t('fav.updated_title'),
-                    message: I18n.t('fav.updated_message'),
-                    confirmText: I18n.t('fav.ok')
-                });
-
-                this.editFavorite = null;
-                this.renderHome();
-                chrome.runtime.sendMessage({ action: 'refreshFavourites' });
-            }
-        } else {
-            this.showFolderSelectionModal(data, async (selectedFolderId) => {
-                const favourite = {
-                    id: `${route}-${stopId}-${Date.now()}`,
-                    route: route,
-                    dest: dest,
-                    stopId: stopId,
-                    stopName: stopName,
-                    folder: selectedFolderId,
-                    provider: data._provider || null  // Remember which API this stop belongs to
-                };
-
-                this.favorites.push(favourite);
-                await Storage.saveFavorites(this.favorites);
-
-                this.showModal({
-                    title: I18n.t('fav.add_title'),
-                    message: selectedFolderId ? I18n.t('fav.add_message_folder') : I18n.t('fav.add_message'),
-                    confirmText: I18n.t('fav.ok')
-                });
-
-                this.renderHome();
-                chrome.runtime.sendMessage({ action: 'refreshFavourites' });
-            });
-        }
-    };
-
-    async performSearch(query) {
-        const container = document.getElementById('search-results');
-        const dropdown = document.getElementById('autocomplete-dropdown');
-        dropdown.style.display = 'none';
-
-        if (!query || query.length < 1) {
-            container.innerHTML = '';
-            return;
-        }
-
-        if (this.searchMode === 'stop') {
-            const stops = await this.searchStopsByName(query);
-            if (stops.length > 0) {
-                this.performStopSearch(stops[0].stop, stops[0].name_en || stops[0].stop);
-            } else {
-                container.innerHTML = `<div class="text-center p-4">${I18n.t('search.no_results_stop')}</div>`;
-            }
-            return;
-        }
-
-        container.innerHTML = `<div class="text-center" style="padding:20px;">${I18n.t('search.searching')}</div>`;
-
-        try {
-            if (typeof API === 'undefined' || !API.searchRoutes) {
-                throw new Error('API not available');
-            }
-
-            const routes = await API.searchRoutes(query);
-
-            if (!Array.isArray(routes) || routes.length === 0) {
-                container.innerHTML = `<div class="text-center p-4">${I18n.t('search.no_results')}</div>`;
-                return;
-            }
-
-            container.innerHTML = '';
-
-            const variantsMap = new Map();
-            for (const routeObj of routes.slice(0, 5)) {
-                if (!routeObj || !routeObj.route) continue;
-
-                if (!variantsMap.has(routeObj.route)) {
-                    variantsMap.set(routeObj.route, true);
-                    const variants = await API.getRouteVariants(routeObj.route);
-
-                    if (Array.isArray(variants)) {
-                        variants.forEach(variant => {
-                            if (!variant) return;
-
-                            const el = document.createElement('div');
-                            el.className = 'eta-card';
-                            el.style.cursor = 'pointer';
-                            el.style.display = 'flex';
-                            el.style.justifyContent = 'space-between';
-                            el.style.alignItems = 'center';
-
-                            // Show provider badge for ambiguous routes (KMB vs CTB)
-                            const providerLabel = variant._provider ? (variant._provider === 'ctb' ? 'CTB' : 'KMB') : '';
-                            const providerBadge = providerLabel ? `<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(52,152,219,0.1);color:var(--primary-color);font-weight:600;margin-left:4px;">${providerLabel}</span>` : '';
-
-                            el.innerHTML = `
-                                <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">${variant.route || ''}${providerBadge}</div>
-                                <div style="text-align: right;">
-                                    <div style="font-size: 14px; color: var(--text-primary); font-weight: 500;">${I18n.t('details.to', {dest: variant.dest_tc || variant.dest_en || ''})}</div>
-                                    <div style="font-size: 11px; color: var(--text-secondary);">${I18n.t('details.from', {orig: variant.orig_tc || variant.orig_en || ''})}</div>
-                                </div>
-                            `;
-                            el.addEventListener('click', () => {
-                                this.openRouteDetails(variant);
-                            });
-                            container.appendChild(el);
-                        });
-                    }
-                }
-            }
-
-        } catch (e) {
-            console.error("Search error", e);
-            container.innerHTML = `<div class="text-center text-danger">${I18n.t('search.error', {message: e.message})}</div>`;
-        }
-    }
-
-    // --- DETAILS VIEW ---
-    async openRouteDetails(variant) {
-        this.navigateTo('view-details');
-        this.currentVariant = variant;
-
-        document.getElementById('detail-route-no').textContent = variant.route;
-        document.getElementById('detail-route-dest').textContent = I18n.t('details.to', {dest: variant.dest_tc || variant.dest_en});
-
-        this.loadStopsList(variant);
-    }
-
-    async loadStopsList(variant) {
-        const container = document.getElementById('stops-container');
-        container.innerHTML = `<div class="text-center p-4">${I18n.t('details.loading')}</div>`;
-
-        this.routeEtaData = null;
-
-        try {
-            // Use _provider from variant if available (for ambiguous routes like KMB vs CTB route 1)
-            const forceProvider = variant._provider || null;
-            const stops = await API.getRouteStops(variant.route, variant.bound, variant.service_type, forceProvider);
-
-            if (stops.length === 0) {
-                container.innerHTML = `<div class="text-center p-4">${I18n.t('details.no_stops')}</div>`;
-                return;
-            }
-
-            this.fetchRouteEtaInBackground(variant);
-
-            container.innerHTML = `<div class="timeline" style="margin-left: 8px;"></div>`;
-            const timeline = container.querySelector('.timeline');
-
-            stops.forEach((stop, index) => {
-                const stopEl = document.createElement('div');
-                stopEl.className = 'stop-row';
-                stopEl.dataset.stopId = stop.stop;
-                stopEl.dataset.seq = stop.seq;
-
-                const isFavorite = this.favorites.some(fav => fav.stopId === stop.stop && fav.route === variant.route && (fav.dest === variant.dest_tc || fav.dest === variant.dest_en));
-
-                stopEl.innerHTML = `
-                    <div class="stop-header">
-                        <div class="stop-dot"></div>
-                        <div class="stop-name">${stop.stopInfo?.name_tc || stop.stopInfo?.name_en || stop.stop}</div>
-                        <div class="stop-actions">
-                            <button class="fav-btn" data-stop-id="${stop.stop}" data-route="${variant.route}" data-dest="${variant.dest_tc || variant.dest_en}" data-stop-name="${stop.stopInfo?.name_tc || stop.stopInfo?.name_en || stop.stop}" data-provider="${variant._provider || ''}" title="${isFavorite ? I18n.t('fav.remove') : I18n.t('fav.add')}">${isFavorite ? '<svg class="icon icon-sm" viewBox="0 0 24 24" fill="currentColor"><use href="../icons/sprite.svg#icon-star"/></svg>' : '<svg class="icon icon-sm" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-star-empty"/></svg>'}</button>
-                            <div class="expand-icon"><svg class="icon icon-xs" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-arrow-down"/></svg></div>
-                        </div>
-                    </div>
-                    <div class="stop-details" id="details-${stop.stop}-${stop.seq}">
-                    </div>
-                `;
-
-                const header = stopEl.querySelector('.stop-header');
-                header.addEventListener('click', (e) => {
-                    if (e.target.classList.contains('fav-btn')) return;
-
-                    const isExpanded = stopEl.classList.contains('expanded');
-
-                    if (isExpanded) {
-                        stopEl.classList.remove('expanded');
-                    } else {
-                        stopEl.classList.add('expanded');
-                        this.renderStopEta(stop, variant, `details-${stop.stop}-${stop.seq}`);
-                    }
-                });
-
-                const favBtn = stopEl.querySelector('.fav-btn');
-                favBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-
-                    const isCurrentlyFavorite = this.favorites.some(fav => fav.stopId === favBtn.dataset.stopId && fav.route === favBtn.dataset.route && (fav.dest === favBtn.dataset.dest));
-
-                    if (isCurrentlyFavorite) {
-                        this.favorites = this.favorites.filter(fav => !(fav.stopId === favBtn.dataset.stopId && fav.route === favBtn.dataset.route && (fav.dest === favBtn.dataset.dest)));
-                        await Storage.saveFavorites(this.favorites);
-                        favBtn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-star-empty"/></svg>';
-                        favBtn.title = I18n.t('fav.add');
-                        chrome.runtime.sendMessage({ action: 'refreshFavourites' });
-                    } else {
-                        await this.addToFavourites(favBtn.dataset);
-                        favBtn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24" fill="currentColor"><use href="../icons/sprite.svg#icon-star"/></svg>';
-                        favBtn.title = I18n.t('fav.remove');
-                    }
-                });
-
-                timeline.appendChild(stopEl);
-            });
-
-            Storage.addRecentSearch(variant.route, variant).catch(console.error);
-
-        } catch (e) {
-            container.innerHTML = `<div class="text-center text-danger">${I18n.t('details.error_stops')}</div>`;
-            console.error(e);
-        }
-    }
-
-    async fetchRouteEtaInBackground(variant) {
-        this.clearEtaIntervals();
-
-        // Use _provider from variant if available (for ambiguous routes)
-        const provider = variant._provider || (typeof API._providerForRoute === 'function' ? API._providerForRoute(variant.route) : 'kmb');
-
-        const fetchFn = async () => {
-            try {
-                if (provider === 'ctb') {
-                    // CTB: no bulk ETA endpoint, fetch per-stop when expanded
-                    // Store a flag so renderStopEta knows to fetch individually
-                    this.routeEtaData = 'ctb';
-                    // Re-render any expanded stops with per-stop ETA
-                    document.querySelectorAll('.stop-row.expanded').forEach(row => {
-                        const stopId = row.dataset.stopId;
-                        const seq = parseInt(row.dataset.seq);
-                        this.renderStopEta({stop: stopId, seq: seq}, variant, `details-${stopId}-${seq}`);
-                    });
-                    return;
-                }
-
-                const data = await API.getRouteETA(variant.route, variant.service_type, variant._provider || null);
-                if(data) {
-                    // CTB uses 'outbound'/'inbound' for dir, KMB uses 'O'/'I'
-                    const bound = variant.bound;
-                    const relevantData = data.filter(item => {
-                        if (item.dir === bound) return true;
-                        // Normalize: 'outbound' matches 'O', 'inbound' matches 'I'
-                        if (bound === 'outbound' && item.dir === 'O') return true;
-                        if (bound === 'inbound' && item.dir === 'I') return true;
-                        if (bound === 'O' && item.dir === 'outbound') return true;
-                        if (bound === 'I' && item.dir === 'inbound') return true;
-                        return false;
-                    });
-
-                    this.routeEtaData = new Map();
-                    relevantData.forEach(item => {
-                        if(!this.routeEtaData.has(item.seq)) {
-                            this.routeEtaData.set(item.seq, []);
-                        }
-                        this.routeEtaData.get(item.seq).push(item);
-                    });
-
-                    this.routeEtaData.forEach(list => {
-                        list.sort((a, b) => new Date(a.eta) - new Date(b.eta));
-                    });
-
-                    document.querySelectorAll('.stop-row.expanded').forEach(row => {
-                        const stopId = row.dataset.stopId;
-                        const seq = parseInt(row.dataset.seq);
-                        this.renderStopEta({stop: stopId, seq: seq}, variant, `details-${stopId}-${seq}`);
-                    });
-                }
-            } catch(e) {
-                console.error("Background ETA fetch failed", e);
-                if(!this.routeEtaData) this.routeEtaData = "error";
-            }
-        };
-
-        await fetchFn();
-
-        const autoRefreshSetting = await chrome.storage.sync.get('autoRefresh');
-        const isAutoRefresh = autoRefreshSetting.autoRefresh !== false;
-
-        if (isAutoRefresh) {
-            const intervalId = setInterval(fetchFn, 30000);
-            this.activeEtaIntervals.push(intervalId);
-        }
-    }
-
-    async renderStopEta(stop, variant, elementId) {
-        const el = document.getElementById(elementId);
-        if(!el) return;
-
-        // CTB: fetch per-stop ETA individually
-        if (this.routeEtaData === 'ctb') {
-            el.innerHTML = `
-                <div class="loading-container">
-                    <div class="spinner"></div>
-                    <span>${I18n.t('details.loading_eta')}</span>
-                </div>`;
-            try {
-                const etas = await API.getStopRouteETA(stop.stop, variant.route, variant.service_type);
-                if (etas && etas.length > 0) {
-                    el.innerHTML = etas.map(e => {
-                        const formatted = API.formatETA(e.eta);
-                        return `
-                        <div class="eta-item">
-                            <div class="eta-main">
-                                <span class="eta-time-large">${formatted.text || 'N/A'}</span>
-                                <span class="text-secondary small" style="margin-left: 6px;">(${formatted.time})</span>
-                            </div>
-                            ${e.rmk_tc ? `<div class="eta-remark">${e.rmk_tc}</div>` : ''}
-                            ${e.dest_tc ? `<div class="eta-remark">${I18n.t('details.to', {dest: e.dest_tc})}</div>` : ''}
-                        </div>
-                    `}).join('');
-                } else {
-                    el.innerHTML = `<div class="text-secondary small" style="padding:8px;">${I18n.t('details.no_scheduled')}</div>`;
-                }
-            } catch(e) {
-                el.innerHTML = `<div class="text-danger small" style="padding:8px;">${I18n.t('details.error_eta')}</div>`;
-            }
-            return;
-        }
-
-        if (!this.routeEtaData) {
-            el.innerHTML = `
-                <div class="loading-container">
-                    <div class="spinner"></div>
-                    <span>${I18n.t('details.loading_eta')}</span>
-                </div>`;
-            return;
-        }
-
-        if (this.routeEtaData === "error") {
-            el.innerHTML = `<div class="text-danger small" style="padding:8px;">${I18n.t('details.error_eta')}</div>`;
-            return;
-        }
-
-        const seq = parseInt(stop.seq);
-        const etas = this.routeEtaData.get(seq) || [];
-
-        if (etas.length > 0) {
-            el.innerHTML = etas.map(e => {
-                const formatted = API.formatETA(e.eta);
-                return `
-                <div class="eta-item">
-                    <div class="eta-main">
-                        <span class="eta-time-large">${formatted.text || 'N/A'}</span>
-                        <span class="text-secondary small" style="margin-left: 6px;">(${formatted.time})</span>
-                    </div>
-                    ${e.rmk_tc ? `<div class="eta-remark">${e.rmk_tc}</div>` : ''}
+            const group = document.createElement('div');
+            group.className = 'route-group';
+            group.innerHTML = `
+                <div class="route-group-head">
+                    <span class="route-code">${escapeHtml(match.route)}</span>
+                    <span class="chips">${match.providers.map(p => `<span class="chip ${p}">${PROVIDERS[p]}</span>`).join('')}</span>
                 </div>
-            `}).join('');
-        } else {
-            el.innerHTML = `<div class="text-secondary small" style="padding:8px;">${I18n.t('details.no_scheduled')}</div>`;
+                <div class="route-bounds"></div>`;
+            const bounds = group.querySelector('.route-bounds');
+
+            variants.forEach(v => {
+                const row = document.createElement('div');
+                row.className = 'bound-row';
+                row.innerHTML = `
+                    <div class="bound-dest">
+                        <span class="arrow">→</span> ${escapeHtml(localized(v.dest_tc, v.dest_en))}
+                        ${v.note_en ? `<span class="note">${escapeHtml(v.note_en)}</span>` : ''}
+                    </div>
+                    <div class="bound-orig">
+                        <span class="chip ${v._provider}">${PROVIDERS[v._provider]}</span>
+                        ${escapeHtml(localized(v.orig_tc, v.orig_en))}
+                    </div>`;
+                row.addEventListener('click', () => this.openDetails(v));
+                bounds.appendChild(row);
+            });
+
+            box.appendChild(group);
         }
     }
 
-    clearEtaIntervals() {
-        this.activeEtaIntervals.forEach(i => clearInterval(i));
-        this.activeEtaIntervals = [];
+    async runStopSearch(query) {
+        const box = $('search-results');
+        const stops = await API.searchStops(query);
+        if (!stops.length) {
+            box.innerHTML = `<div class="empty-state"><p>${I18n.t('search.no_results_stop')}</p></div>`;
+            return;
+        }
+
+        box.innerHTML = '';
+        const group = document.createElement('div');
+        group.className = 'section-group';
+        stops.forEach(stop => {
+            const row = document.createElement('div');
+            row.className = 'list-item stop-result';
+            row.innerHTML = `
+                <div class="list-content">
+                    <div class="list-title">${escapeHtml(localized(stop.name_tc, stop.name_en))}</div>
+                    <div class="list-subtitle">${escapeHtml(localized(stop.name_en, stop.name_tc))}</div>
+                </div>
+                <svg class="icon icon-sm chevron" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-arrow-right"/></svg>`;
+            row.addEventListener('click', () => this.openStop(stop));
+            group.appendChild(row);
+        });
+        box.appendChild(group);
     }
 
-    // --- MODAL UTILS ---
-    showModal({ title, message, confirmText = I18n.t('modal.confirm'), cancelText = I18n.t('modal.cancel'), confirmStyle = 'primary', onConfirm }) {
-        const modal = document.getElementById('app-modal');
-        const titleEl = document.getElementById('modal-title');
-        const msgEl = document.getElementById('modal-message');
-        const actionsEl = document.getElementById('modal-actions');
+    // Routes arriving at a stop, with their next buses.
+    async openStop(stop) {
+        const box = $('search-results');
+        box.innerHTML = `<div class="loading-container"><div class="spinner"></div><span>${I18n.t('search.searching')}</span></div>`;
 
-        if (!modal) return;
+        const etas = await API.getETA(stop.stop);
+        if (!etas.length) {
+            box.innerHTML = `<div class="empty-state"><p>${I18n.t('search.no_results_stop')}</p></div>`;
+            return;
+        }
 
-        titleEl.textContent = title;
-        msgEl.textContent = message;
-        actionsEl.innerHTML = '';
+        const byRoute = new Map();
+        for (const e of etas) {
+            const key = `${e.route}|${e.dir}`;
+            if (!byRoute.has(key)) byRoute.set(key, { route: e.route, dir: e.dir, dest_tc: e.dest_tc, dest_en: e.dest_en, list: [] });
+            byRoute.get(key).list.push(e);
+        }
 
-        if (onConfirm) {
-            const cancelBtn = document.createElement('button');
-            cancelBtn.className = 'modal-btn';
-            cancelBtn.textContent = cancelText;
-            cancelBtn.addEventListener('click', () => {
+        box.innerHTML = `<div class="section-title">${escapeHtml(localized(stop.name_tc, stop.name_en))}</div>`;
+        const group = document.createElement('div');
+        group.className = 'section-group';
+
+        byRoute.forEach(route => {
+            const row = document.createElement('div');
+            row.className = 'list-item route-at-stop';
+            row.innerHTML = `
+                <div class="route-badge kmb">${escapeHtml(route.route)}</div>
+                <div class="list-content">
+                    <div class="list-title">${escapeHtml(localized(route.dest_tc, route.dest_en))}</div>
+                    <div class="list-subtitle">${I18n.t('details.from_stop')}</div>
+                </div>
+                <div class="eta-chips">${etaChips(route.list.map(e => API.formatETA(e.eta)))}</div>`;
+            row.addEventListener('click', async () => {
+                const variants = await API.getRouteVariants(route.route);
+                const match = variants.find(v =>
+                    (v._provider === 'kmb' && v.dir === route.dir) ||
+                    (v._provider !== 'kmb' && v.dest_tc === route.dest_tc)
+                ) || variants[0];
+                if (match) this.openDetails(match, { focusStop: stop.stop });
+            });
+            group.appendChild(row);
+        });
+
+        box.appendChild(group);
+    }
+
+    // ---------- details ----------
+
+    async openDetails(variant, opts = {}) {
+        this.variant = variant;
+        this.navigate('view-details');
+        $('header-sub').textContent = `${PROVIDERS[variant._provider]} · ${localized(variant.orig_tc, variant.orig_en)} → ${localized(variant.dest_tc, variant.dest_en)}`;
+        $('header-sub').classList.add('visible');
+        $('header-title').classList.add('hidden');
+
+        Storage.addRecentSearch(variant.route, {
+            dest_tc: variant.dest_tc, dest_en: variant.dest_en,
+            _provider: variant._provider, dir: variant.dir
+        }).catch(() => {});
+
+        await this.loadStops(variant, opts.focusStop);
+    }
+
+    async loadStops(variant, focusStop = null) {
+        const container = $('stops-container');
+        $('details-meta').innerHTML = `<div class="route-code">${escapeHtml(variant.route)}</div>
+            <div class="meta-line"><span class="chip ${variant._provider}">${PROVIDERS[variant._provider]}</span>
+            ${escapeHtml(localized(variant.orig_tc, variant.orig_en))} → ${escapeHtml(localized(variant.dest_tc, variant.dest_en))}</div>`;
+        container.innerHTML = `<div class="loading-container"><div class="spinner"></div><span>${I18n.t('details.loading')}</span></div>`;
+
+        try {
+            this.stops = await API.getRouteStops(variant);
+        } catch (e) {
+            container.innerHTML = `<div class="empty-state"><p>${I18n.t('details.error_stops')}</p></div>`;
+            return;
+        }
+
+        if (!this.stops.length) {
+            container.innerHTML = `<div class="empty-state"><p>${I18n.t('details.no_stops')}</p></div>`;
+            return;
+        }
+
+        this.expanded.clear();
+        if (focusStop) this.expanded.add(Number(focusStop.seq) || focusStop);
+
+        container.innerHTML = '<div class="stop-list"></div>';
+        const list = container.querySelector('.stop-list');
+
+        this.stops.forEach(stop => {
+            const row = document.createElement('div');
+            row.className = 'stop-row';
+            row.dataset.seq = stop.seq;
+            row.dataset.stopId = stop.id;
+            row.innerHTML = `
+                <div class="stop-line"><span class="stop-dot"></span></div>
+                <div class="stop-body">
+                    <div class="stop-head">
+                        <div class="stop-name">${escapeHtml(localized(stop.name_tc, stop.name_en))}</div>
+                        <div class="eta-chips" data-eta-seq="${stop.seq}"><span class="eta-chip muted">···</span></div>
+                        <button class="fav-btn" aria-label="${I18n.t('fav.add')}"></button>
+                    </div>
+                    <div class="stop-extra"></div>
+                </div>`;
+            row.querySelector('.stop-head').addEventListener('click', (e) => {
+                if (e.target.closest('.fav-btn')) return;
+                this.toggleStop(row, stop);
+            });
+            row.querySelector('.fav-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleFavorite(row, variant, stop);
+            });
+            list.appendChild(row);
+        });
+
+        this.paintStars();
+        await this.refreshEtas(variant);
+
+        if (focusStop) {
+            const row = list.querySelector(`.stop-row[data-seq="${CSS.escape(String(Number(focusStop.seq) || focusStop))}"]`);
+            if (row) row.scrollIntoView({ block: 'center' });
+        }
+
+        this.startRefresh(variant);
+    }
+
+    async refreshEtas(variant) {
+        const paint = (map) => {
+            this.etaMap = map;
+            this.stops.forEach(stop => {
+                const slot = document.querySelector(`[data-eta-seq="${stop.seq}"]`);
+                if (!slot) return;
+                const etas = map.get(stop.seq) || [];
+                slot.innerHTML = etaChips(etas);
+                const row = slot.closest('.stop-row');
+                if (row && row.classList.contains('open')) this.renderStopExtra(row, stop, etas);
+            });
+        };
+
+        const map = await API.getRouteEtas(variant, this.stops, paint);
+        paint(map);
+    }
+
+    startRefresh(variant) {
+        this.stopRefresh();
+        chrome.storage.sync.get('autoRefresh', ({ autoRefresh }) => {
+            if (autoRefresh === false) return;
+            this.refreshTimer = setInterval(() => {
+                if (this.view !== 'view-details') return this.stopRefresh();
+                this.refreshEtas(variant);
+            }, REFRESH_MS);
+        });
+    }
+
+    stopRefresh() {
+        if (this.refreshTimer) clearInterval(this.refreshTimer);
+        this.refreshTimer = null;
+    }
+
+    toggleStop(row, stop) {
+        row.classList.toggle('open');
+        if (row.classList.contains('open')) {
+            this.renderStopExtra(row, stop, this.etaMap.get(stop.seq) || []);
+        }
+    }
+
+    renderStopExtra(row, stop, etas) {
+        const extra = row.querySelector('.stop-extra');
+        if (!etas.length) {
+            extra.innerHTML = `<div class="stop-empty">${I18n.t('details.no_scheduled')}</div>`;
+            return;
+        }
+        extra.innerHTML = etas.map(e => `
+            <div class="eta-detail">
+                <span class="eta-time">${e.time}</span>
+                <span class="eta-min">${e.minutes <= 0 ? I18n.t('details.arriving') : `${e.minutes} min`}</span>
+                ${e.remark_tc ? `<span class="eta-remark">${escapeHtml(I18n.getLang() === 'zh-HK' ? e.remark_tc : e.remark_en)}</span>` : ''}
+            </div>`).join('');
+    }
+
+    paintStars() {
+        if (!this.variant) return;
+        document.querySelectorAll('.stop-row').forEach(row => {
+            const stopId = row.dataset.stopId;
+            const on = this.favorites.some(f =>
+                f.stopId === stopId && f.route === this.variant.route &&
+                f.provider === this.variant._provider && f.dir === this.variant.dir
+            );
+            row.classList.toggle('is-fav', on);
+            row.querySelector('.fav-btn').innerHTML =
+                `<svg class="icon icon-sm" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-${on ? 'star' : 'star-empty'}"/></svg>`;
+        });
+    }
+
+    // ---------- favourites ----------
+
+    async toggleFavorite(row, variant, stop) {
+        const stopId = stop.id;
+        const existing = this.favorites.find(f =>
+            f.stopId === stopId && f.route === variant.route &&
+            f.provider === variant._provider && f.dir === variant.dir
+        );
+
+        if (existing) {
+            this.favorites = this.favorites.filter(f => f !== existing);
+            await Storage.saveFavorites(this.favorites);
+            this.paintStars();
+            return;
+        }
+
+        const folder = await this.chooseFolder();
+        if (folder === undefined) return; // cancelled
+
+        this.favorites.push({
+            id: `${variant._provider}-${variant.route}-${variant.dir}-${stopId}`,
+            route: variant.route,
+            stopId,
+            stopName: localized(stop.name_tc, stop.name_en),
+            stopNameTc: stop.name_tc,
+            dest_tc: variant.dest_tc,
+            dest_en: variant.dest_en,
+            orig_tc: variant.orig_tc,
+            orig_en: variant.orig_en,
+            provider: variant._provider,
+            dir: variant.dir,
+            service_type: variant.service_type,
+            route_id: variant.route_id,
+            region: variant.region,
+            folder: folder || undefined
+        });
+        await Storage.saveFavorites(this.favorites);
+        this.paintStars();
+        chrome.runtime.sendMessage({ action: 'refreshFavourites' });
+    }
+
+    chooseFolder() {
+        return new Promise(resolve => {
+            if (!this.folders.length) return resolve(null);
+
+            const modal = $('app-modal');
+            $('modal-title').textContent = I18n.t('fav.choose_folder');
+            $('modal-message').innerHTML = `<div class="folder-list">${this.folders.map(f => `
+                <button class="folder-option" data-folder="${f.id}">
+                    <span class="folder-dot" style="background:${f.color || 'var(--primary-color)'}"></span>${escapeHtml(f.name)}
+                </button>`).join('')}</div>`;
+            $('modal-actions').innerHTML = `<button class="modal-btn" data-act="cancel">${I18n.t('modal.cancel')}</button>`;
+
+            const close = (value) => {
                 modal.classList.remove('active');
-                setTimeout(() => modal.classList.add('hidden'), 200);
+                setTimeout(() => modal.classList.add('hidden'), 180);
+                resolve(value);
+            };
+
+            $('modal-message').querySelectorAll('.folder-option').forEach(btn => {
+                btn.addEventListener('click', () => close(btn.dataset.folder));
             });
-            actionsEl.appendChild(cancelBtn);
-        }
+            $('modal-actions').querySelector('[data-act="cancel"]').addEventListener('click', () => close(undefined));
 
-        const confirmBtn = document.createElement('button');
-        confirmBtn.className = `modal-btn bold ${confirmStyle === 'danger' ? 'danger' : ''}`;
-        confirmBtn.textContent = confirmText;
-        confirmBtn.addEventListener('click', () => {
-            modal.classList.remove('active');
-            setTimeout(() => modal.classList.add('hidden'), 200);
-            if (onConfirm) onConfirm();
-        });
-        actionsEl.appendChild(confirmBtn);
-
-        modal.classList.remove('hidden');
-        requestAnimationFrame(() => {
-            modal.classList.add('active');
+            modal.classList.remove('hidden');
+            requestAnimationFrame(() => modal.classList.add('active'));
         });
     }
 
-    showFolderSelectionModal(favoriteData, onFolderSelected) {
-        const modal = document.getElementById('app-modal');
-        const titleEl = document.getElementById('modal-title');
-        const msgEl = document.getElementById('modal-message');
-        const actionsEl = document.getElementById('modal-actions');
+    // ---------- settings ----------
 
-        if (!modal) return;
+    renderSettings() {
+        const list = $('settings-list');
+        list.innerHTML = `
+            <div class="list-item">
+                <div class="list-content">
+                    <div class="list-title">${I18n.t('settings.dark_mode')}</div>
+                    <div class="list-subtitle">${I18n.t('settings.dark_mode_desc')}</div>
+                </div>
+                <label class="toggle-switch"><input type="checkbox" id="set-dark"><span class="slider"></span></label>
+            </div>
+            <div class="list-item">
+                <div class="list-content">
+                    <div class="list-title">${I18n.t('settings.language')}</div>
+                    <div class="list-subtitle">${I18n.t('settings.language_desc')}</div>
+                </div>
+                <select class="lang-select" id="set-lang">
+                    <option value="en">English</option>
+                    <option value="zh-HK">繁體中文</option>
+                </select>
+            </div>
+            <div class="list-item">
+                <div class="list-content">
+                    <div class="list-title">${I18n.t('settings.auto_refresh')}</div>
+                    <div class="list-subtitle">${I18n.t('settings.auto_refresh_desc')}</div>
+                </div>
+                <label class="toggle-switch"><input type="checkbox" id="set-refresh"><span class="slider"></span></label>
+            </div>
+            <div class="list-item" id="open-options">
+                <div class="list-content">
+                    <div class="list-title">${I18n.t('settings.open')}</div>
+                    <div class="list-subtitle">${I18n.t('settings.subtitle')}</div>
+                </div>
+                <svg class="icon icon-sm chevron" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-arrow-right"/></svg>
+            </div>`;
 
-        titleEl.textContent = I18n.t('fav.choose_folder');
-        msgEl.innerHTML = `<div style="margin-bottom: 16px;">${I18n.t('fav.select_folder')}</div>`;
-
-        const folderSelect = document.createElement('div');
-        folderSelect.style.cssText = 'margin-bottom: 16px;';
-
-        const unassignedOption = document.createElement('button');
-        unassignedOption.className = 'folder-option-btn active';
-        unassignedOption.innerHTML = `<span class="folder-icon"><svg class="icon icon-sm" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-folder"/></svg></span> ${I18n.t('fav.unassigned')}`;
-        unassignedOption.addEventListener('click', () => {
-            document.querySelectorAll('.folder-option-btn').forEach(btn => btn.classList.remove('active'));
-            unassignedOption.classList.add('active');
+        const dark = $('set-dark');
+        chrome.storage.sync.get('theme', ({ theme }) => { dark.checked = theme === 'dark'; });
+        dark.addEventListener('change', () => {
+            document.body.classList.toggle('dark-mode', dark.checked);
+            chrome.storage.sync.set({ theme: dark.checked ? 'dark' : 'light' });
+            Storage.getSettings().then(settings => Storage.saveSettings({ ...settings, theme: dark.checked ? 'dark' : 'light' }));
         });
-        folderSelect.appendChild(unassignedOption);
 
-        this.folders.forEach(folder => {
-            const folderOption = document.createElement('button');
-            folderOption.className = 'folder-option-btn';
-            folderOption.innerHTML = `<span class="folder-icon">${folder.icon || '<svg class="icon icon-sm" viewBox="0 0 24 24"><use href="../icons/sprite.svg#icon-folder"/></svg>'}</span> ${folder.name}`;
-            folderOption.dataset.folderId = folder.id;
-            folderOption.addEventListener('click', () => {
-                document.querySelectorAll('.folder-option-btn').forEach(btn => btn.classList.remove('active'));
-                folderOption.classList.add('active');
-            });
-            folderSelect.appendChild(folderOption);
+        const lang = $('set-lang');
+        lang.value = I18n.getLang();
+        lang.addEventListener('change', async () => {
+            await I18n.setLang(lang.value);
+            this.renderSettings();
+            this.bindStaticI18n();
+            await this.renderHome();
+            $('search-results').innerHTML = this.searchHint();
         });
 
-        msgEl.appendChild(folderSelect);
-
-        actionsEl.innerHTML = '';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'modal-btn';
-        cancelBtn.textContent = I18n.t('fav.cancel');
-        cancelBtn.addEventListener('click', () => {
-            modal.classList.remove('active');
-            setTimeout(() => modal.classList.add('hidden'), 200);
+        const auto = $('set-refresh');
+        chrome.storage.sync.get('autoRefresh', ({ autoRefresh }) => { auto.checked = autoRefresh !== false; });
+        auto.addEventListener('change', () => {
+            chrome.storage.sync.set({ autoRefresh: auto.checked });
+            Storage.getSettings().then(settings => Storage.saveSettings({ ...settings, autoRefresh: auto.checked }));
         });
-        actionsEl.appendChild(cancelBtn);
 
-        const addBtn = document.createElement('button');
-        addBtn.className = 'modal-btn bold primary';
-        addBtn.textContent = I18n.t('fav.add_favorite');
-        addBtn.addEventListener('click', () => {
-            const selectedFolderBtn = document.querySelector('.folder-option-btn.active');
-            let selectedFolderId = null;
-
-            if (selectedFolderBtn && selectedFolderBtn.dataset.folderId) {
-                selectedFolderId = selectedFolderBtn.dataset.folderId;
-            }
-
-            modal.classList.remove('active');
-            setTimeout(() => modal.classList.add('hidden'), 200);
-            onFolderSelected(selectedFolderId);
-        });
-        actionsEl.appendChild(addBtn);
-
-        modal.classList.remove('hidden');
-        requestAnimationFrame(() => {
-            modal.classList.add('active');
-        });
+        $('open-options').addEventListener('click', () => chrome.runtime.openOptionsPage());
     }
 
-    setupSettings() {
-        const clearDataBtn = document.getElementById('clear-data-btn');
-        if (clearDataBtn) {
-            clearDataBtn.addEventListener('click', async () => {
-                this.showModal({
-                    title: I18n.t('settings.reset_title'),
-                    message: I18n.t('settings.reset_confirm'),
-                    confirmText: I18n.t('settings.reset_button'),
-                    confirmStyle: 'danger',
-                    onConfirm: async () => {
-                       await chrome.storage.local.clear();
-                       location.reload();
-                    }
-                });
-            });
-        }
-
-        // Dark Mode
-        const darkModeToggle = document.getElementById('setting-dark-mode');
-        if (darkModeToggle) {
-            chrome.storage.sync.get('theme', (result) => {
-                const theme = result.theme || 'light';
-                if (theme === 'dark') {
-                    darkModeToggle.checked = true;
-                    document.body.classList.add('dark-mode');
-                }
-            });
-
-            darkModeToggle.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    document.body.classList.add('dark-mode');
-                    chrome.storage.sync.set({ theme: 'dark' });
-                } else {
-                    document.body.classList.remove('dark-mode');
-                    chrome.storage.sync.set({ theme: 'light' });
-                }
-            });
-        }
-
-        const autoRefreshToggle = document.getElementById('setting-auto-refresh');
-        if (autoRefreshToggle) {
-            chrome.storage.sync.get('autoRefresh', (result) => {
-                const saved = result.autoRefresh;
-                if (saved === false) {
-                    autoRefreshToggle.checked = false;
-                }
-            });
-
-            autoRefreshToggle.addEventListener('change', (e) => {
-                chrome.storage.sync.set({ autoRefresh: e.target.checked });
-            });
+    bindStaticI18n() {
+        I18n.applyToDocument();
+        $('search-input').placeholder = I18n.t(this.searchMode === 'stop' ? 'search.placeholder_stop' : 'search.placeholder');
+        if (this.variant) {
+            $('header-sub').textContent = `${PROVIDERS[this.variant._provider]} · ${localized(this.variant.orig_tc, this.variant.orig_en)} → ${localized(this.variant.dest_tc, this.variant.dest_en)}`;
         }
     }
 }
 
-// Initialize
+// ---------- helpers ----------
+
+function localized(tc, en) {
+    return I18n.getLang() === 'zh-HK' ? (tc || en || '') : (en || tc || '');
+}
+
+function escapeHtml(text) {
+    return String(text == null ? '' : text)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+// Up to three minute-chips; "–" when the operator has nothing scheduled.
+function etaChips(etas) {
+    if (!etas || !etas.length) return '<span class="eta-chip muted">–</span>';
+    return etas.slice(0, 3).map(e => {
+        const cls = e.minutes <= 0 ? 'now' : e.minutes <= 5 ? 'soon' : '';
+        const label = e.minutes <= 0 ? I18n.t('details.arriving') : `${e.minutes}`;
+        return `<span class="eta-chip ${cls}" title="${escapeHtml(e.time)}">${label}</span>`;
+    }).join('');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new App();
+    window.app.init();
 });
 
-// Listen for messages from options page to refresh favourites and folders
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if ((message.action === 'refreshFavourites' || message.action === 'refreshFolders') && window.app) {
+chrome.runtime.onMessage.addListener((message) => {
+    if (window.app && (message.action === 'refreshFavourites' || message.action === 'refreshFolders')) {
         window.app.loadData().then(() => {
-            window.app.renderHome();
+            if (window.app.view === 'view-home') window.app.renderHome();
+            else window.app.paintStars();
         });
     }
 });

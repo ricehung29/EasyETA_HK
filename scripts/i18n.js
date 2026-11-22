@@ -25,10 +25,16 @@ const I18n = {
             'home.show_more': 'Show {count} more...',
             'home.all_favorites': 'All Favorites',
             'home.last_viewed': 'Last viewed: {date}',
+            'home.start_search': 'Search for a route',
+            'search.hint_route': 'Type a route number to see both directions',
+            'search.hint_stop': 'Type a stop name to see buses arriving there',
+            'details.from_stop': 'Buses at this stop',
+            'details.arriving': 'Now',
+
 
             // Search
-            'search.placeholder': 'Search route (e.g. 968, 1A)',
-            'search.placeholder_stop': 'Search route or stop (e.g. 968, 1A, Central)',
+            'search.placeholder': 'Route or stop (e.g. 968, Central)',
+            'search.placeholder_stop': 'Stop name (e.g. Central, 中環)',
             'search.searching': 'Searching...',
             'search.no_results': 'No routes found',
             'search.no_results_stop': 'No routes or stops found',
@@ -192,10 +198,16 @@ const I18n = {
             'home.show_more': '顯示多 {count} 個...',
             'home.all_favorites': '所有最愛',
             'home.last_viewed': '上次瀏覽：{date}',
+            'home.start_search': '搜尋路線',
+            'search.hint_route': '輸入路線號碼以查看兩個方向',
+            'search.hint_stop': '輸入站名以查看到站巴士',
+            'details.from_stop': '此站路線',
+            'details.arriving': '即將到站',
+
 
             // Search
-            'search.placeholder': '搜尋路線（例如 968, 1A）',
-            'search.placeholder_stop': '搜尋路線或站點（例如 968, 1A, 中環）',
+            'search.placeholder': '路線或站名（例如 968, 中環）',
+            'search.placeholder_stop': '站名（例如 中環, Central）',
             'search.searching': '搜尋中...',
             'search.no_results': '找不到路線',
             'search.no_results_stop': '找不到路線或站點',

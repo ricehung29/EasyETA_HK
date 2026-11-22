@@ -10,6 +10,7 @@ const RuleEngine = {
      */
     async evaluate(rule, context) {
         try {
+            if (!rule?.enabled || !context?.currentTime) return false;
             // Check rule type
             if (rule.type === 'one-time') {
                 return this.evaluateOneTime(rule, context);
@@ -95,11 +96,8 @@ const RuleEngine = {
      * Evaluate a conditional rule (visual or script mode)
      */
     evaluateConditional(rule, context) {
-        if (rule.mode === 'script') {
-            return this.evaluateScript(rule, context);
-        } else {
-            return this.evaluateVisualConditions(rule, context);
-        }
+        // Custom scripts are intentionally not evaluated in the privileged extension context.
+        return rule.mode === 'script' ? false : this.evaluateVisualConditions(rule, context);
     },
 
     /**
@@ -113,7 +111,8 @@ const RuleEngine = {
         const operator = rule.conditions.operator || 'AND';
         const conditions = rule.conditions.rules;
         
-        const results = conditions.map(condition => 
+        if (!conditions.length) return false;
+        const results = conditions.map(condition =>
             this.evaluateSingleCondition(condition, context)
         );
         
@@ -143,11 +142,9 @@ const RuleEngine = {
                 actualValue = context.currentTime.day;
                 break;
             case 'eta':
-                if (target === 'next_bus') {
-                    actualValue = context.eta?.next;
-                } else if (target === 'second_bus') {
-                    actualValue = context.eta?.second;
-                }
+                if (target === 'next_bus') actualValue = context.eta?.next;
+                else if (target === 'second_bus') actualValue = context.eta?.second;
+                if (!Number.isFinite(actualValue)) return false;
                 break;
             default:
                 actualValue = null;
@@ -185,23 +182,9 @@ const RuleEngine = {
     /**
      * Evaluate custom script
      */
-    evaluateScript(rule, context) {
-        if (!rule.script) return false;
-        
-        try {
-            // Create a sandboxed evaluation function
-            // Note: In production, this should be more secure
-            const evalFunction = new Function('context', `
-                ${rule.script}
-                return evaluate(context);
-            `);
-            
-            const result = evalFunction(context);
-            return Boolean(result);
-        } catch (error) {
-            console.error('Script evaluation error:', error);
-            return false;
-        }
+    evaluateScript() {
+        // Custom JavaScript rules are disabled: extension-stored scripts are untrusted input.
+        return false;
     },
 
     /**
@@ -230,8 +213,12 @@ const RuleEngine = {
             errors.push('Conditional rules require either conditions or script');
         }
         
-        if (rule.mode === 'script' && !rule.script) {
-            errors.push('Script mode requires a script');
+        if (rule.mode === 'script') {
+            errors.push('Script rules are not supported safely');
+        }
+        if (rule.type === 'conditional' && rule.mode !== 'script' &&
+            (!rule.conditions?.rules?.length || !['AND', 'OR'].includes(rule.conditions.operator || 'AND'))) {
+            errors.push('Conditional rules require one or more valid visual conditions');
         }
         
         return {

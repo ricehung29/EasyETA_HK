@@ -3,7 +3,10 @@
 // State
 let state = {
     favorites: [],
-    folders: []
+    folders: [],
+    rules: [],
+    ruleVariant: null,
+    ruleStops: []
 };
 
 // DOM Elements
@@ -36,6 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadData();
     setupEventListeners();
     renderFoldersAndFavorites();
+    renderRules();
     updateStorageInfo();
     setupLanguageSwitcher();
     applyI18nToDocument();
@@ -53,7 +57,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function loadData() {
     state.favorites = await Storage.getFavorites() || [];
     state.folders = await Storage.getFolders() || [];
-    
+    state.rules = await Storage.getRules() || [];
+
     // Migrate old folders with timeslotId to new timeslot object
     const timeslots = await Storage.getTimeslots() || [];
     state.folders.forEach(folder => {
@@ -297,6 +302,16 @@ function setupEventListeners() {
     elements.importBtn.addEventListener('click', handleImport);
     elements.clearAllBtn.addEventListener('click', handleClearAll);
 
+    const resetAllBtn = document.getElementById('clear-data-btn');
+    if (resetAllBtn) resetAllBtn.addEventListener('click', handleClearAll);
+
+    const testNotificationBtn = document.getElementById('testNotificationBtn');
+    if (testNotificationBtn) testNotificationBtn.addEventListener('click', handleTestNotification);
+
+    // Notification rules
+    document.getElementById('addRuleBtn').addEventListener('click', () => openRuleEditor());
+    setupRuleEvents();
+
     // Settings
     setupSettings();
 }
@@ -318,10 +333,12 @@ function setupSettings() {
                 e.target.classList.remove('active');
                 document.body.classList.remove('dark-mode');
                 chrome.storage.sync.set({ theme: 'light' });
+                Storage.getSettings().then(settings => Storage.saveSettings({ ...settings, theme: 'light' }));
             } else {
                 e.target.classList.add('active');
                 document.body.classList.add('dark-mode');
                 chrome.storage.sync.set({ theme: 'dark' });
+                Storage.getSettings().then(settings => Storage.saveSettings({ ...settings, theme: 'dark' }));
             }
         });
     }
@@ -338,6 +355,7 @@ function setupSettings() {
         elements.settingAutoRefresh.addEventListener('click', (e) => {
             const isActive = e.target.classList.contains('active');
             chrome.storage.sync.set({ autoRefresh: !isActive });
+            Storage.getSettings().then(settings => Storage.saveSettings({ ...settings, autoRefresh: !isActive }));
             if (isActive) {
                 e.target.classList.remove('active');
             } else {
@@ -476,37 +494,150 @@ function renderFoldersAndFavorites() {
     });
 }
 
-// ... Data handlers (Export/Import/Clear) ... 
-function handleExport() {
-    const data = { favorites: state.favorites, folders: state.folders, exportedAt: new Date().toISOString(), version: '1.0.0' };
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `easyeta-backup-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+// Backup includes all local application data and is validated before import.
+async function handleExport() {
+    const data = await ImportExport.exportAll();
+    ImportExport.downloadJSON(data, `easyeta-backup-${new Date().toISOString().slice(0,10)}.json`);
 }
 async function handleImport() {
     const file = elements.importFile.files[0];
     if (!file) { alert('Please select a JSON file first'); return; }
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            const data = JSON.parse(e.target.result);
-            if (data.rules && Array.isArray(data.rules)) await Storage.saveRules(data.rules);
-            if (data.favorites && Array.isArray(data.favorites)) await Storage.saveFavorites(data.favorites);
-            alert('Import successful! Reloading page...');
-            location.reload();
-        } catch (err) { alert('Error parsing file: ' + err.message); }
-    };
-    reader.readAsText(file);
+    try {
+        const data = await ImportExport.readJSONFile(file);
+        await ImportExport.importData(data);
+        alert('Import successful! Reloading page...');
+        location.reload();
+    } catch (err) { alert('Import failed: ' + err.message); }
 }
+function renderRules() {
+    const list = document.getElementById('rulesList');
+    if (!list) return;
+    if (!state.rules.length) {
+        list.innerHTML = '<div class="empty-state"><p>No notification rules yet.</p><small>Create a rule to be notified when a bus is approaching.</small></div>';
+        return;
+    }
+    list.innerHTML = state.rules.map(rule => `<div class="list-item rule-row" data-id="${escapeHtml(rule.id)}">
+        <div class="list-content"><div class="list-title">${escapeHtml(rule.name)}</div>
+        <div class="list-subtitle">${escapeHtml(rule.route || '')} · ${escapeHtml(rule.stopName || rule.stopId || '')} · ETA ≤ ${Number(rule.thresholdMinutes)} min · ${rule.enabled ? 'Enabled' : 'Paused'}</div></div>
+        <div class="list-trailing"><button class="btn-secondary rule-toggle" data-id="${escapeHtml(rule.id)}">${rule.enabled ? 'Pause' : 'Enable'}</button> <button class="btn-danger rule-delete" data-id="${escapeHtml(rule.id)}">Delete</button></div>
+    </div>`).join('');
+    list.querySelectorAll('.rule-toggle').forEach(btn => btn.onclick = () => updateRule(btn.dataset.id, r => { r.enabled = !r.enabled; }));
+    list.querySelectorAll('.rule-delete').forEach(btn => btn.onclick = () => updateRule(btn.dataset.id, null));
+}
+
+async function updateRule(id, edit) {
+    state.rules = state.rules.filter(rule => {
+        if (rule.id !== id) return true;
+        if (edit) { edit(rule); return true; }
+        return false;
+    });
+    await Storage.saveRules(state.rules);
+    renderRules();
+}
+
+function setupRuleEvents() {
+    const modal = document.getElementById('ruleEditor');
+    modal.querySelector('.modal-header .close-btn').onclick = () => modal.classList.add('hidden');
+    modal.addEventListener('click', e => { if (e.target === modal) modal.classList.add('hidden'); });
+    const routeInput = document.getElementById('routeSearchInput');
+    routeInput.addEventListener('input', async e => {
+        const results = document.getElementById('routeResults');
+        const q = e.target.value.trim();
+        results.innerHTML = '';
+        if (!q) { results.classList.add('hidden'); return; }
+        try {
+            const hits = (await API.searchRoutes(q)).slice(0, 12);
+            results.innerHTML = hits.map(h => `<button type="button" class="list-item rule-route-hit" data-route="${escapeHtml(h.route)}">${escapeHtml(h.route)} <small>${h.providers.join(' · ').toUpperCase()}</small></button>`).join('');
+            results.classList.remove('hidden');
+            results.querySelectorAll('.rule-route-hit').forEach(btn => btn.onclick = async () => {
+                try {
+                    const variants = await API.getRouteVariants(btn.dataset.route);
+                    modal._variants = variants;
+                    const select = document.getElementById('routeDirectionSelect');
+                    select.innerHTML = variants.map((v,i) => `<option value="${i}">${v._provider.toUpperCase()} · ${escapeHtml(v.orig_en)} → ${escapeHtml(v.dest_en)}</option>`).join('');
+                    document.getElementById('route-dir-selection').classList.toggle('hidden', !variants.length);
+                    routeInput.value = btn.dataset.route;
+                    results.innerHTML = ''; results.classList.add('hidden');
+                    await loadRuleStops();
+                } catch (error) { results.textContent = `Could not load route: ${error.message}`; }
+            });
+        } catch (error) { results.textContent = `Search failed: ${error.message}`; results.classList.remove('hidden'); }
+    });
+    document.getElementById('routeDirectionSelect').addEventListener('change', loadRuleStops);
+    document.getElementById('finishStepBtn').onclick = saveRule;
+    document.getElementById('nextStepBtn').onclick = () => setWizardStep(Number(document.querySelector('.wizard-step:not(.hidden)')?.id.split('-')[1]) + 1);
+    document.getElementById('prevStepBtn').onclick = () => setWizardStep(1);
+}
+function setWizardStep(step) {
+    const modal = document.getElementById('ruleEditor');
+    step = Math.max(1, Math.min(3, step));
+    modal.querySelectorAll('.wizard-step').forEach((el,i) => el.classList.toggle('hidden', i !== step-1));
+    modal.querySelectorAll('.wizard-progress .step').forEach((el,i) => el.classList.toggle('active', i === step-1));
+    document.getElementById('prevStepBtn').classList.toggle('hidden', step === 1);
+    document.getElementById('nextStepBtn').classList.toggle('hidden', step === 3);
+    document.getElementById('finishStepBtn').classList.toggle('hidden', step !== 3);
+    document.getElementById('finishStepBtn').disabled = document.getElementById('routeStopSelect').options.length === 0;
+}
+
+async function loadRuleStops() {
+    const modal = document.getElementById('ruleEditor');
+    const variant = modal._variants?.[Number(document.getElementById('routeDirectionSelect').value)];
+    const select = document.getElementById('routeStopSelect');
+    if (!variant) { select.innerHTML = ''; select.disabled = true; return; }
+    const stops = await API.getRouteStops(variant);
+    modal._stops = stops;
+    select.innerHTML = stops.map((stop,i) => `<option value="${i}">${escapeHtml(stop.name_en)} · ${escapeHtml(stop.name_tc)}</option>`).join('');
+    select.disabled = !stops.length;
+    document.getElementById('nextStepBtn').disabled = !stops.length;
+    document.getElementById('finishStepBtn').disabled = !stops.length;
+}
+
+function openRuleEditor() {
+    const modal = document.getElementById('ruleEditor');
+    modal._variants = [];
+    modal._stops = [];
+    modal.classList.remove('hidden');
+    document.getElementById('routeSearchInput').value = '';
+    document.getElementById('routeResults').innerHTML = '';
+    document.getElementById('routeResults').classList.add('hidden');
+    document.getElementById('route-dir-selection').classList.add('hidden');
+    document.getElementById('routeStopSelect').innerHTML = '';
+    document.getElementById('routeStopSelect').disabled = true;
+    document.getElementById('nextStepBtn').disabled = true;
+    document.getElementById('finalRuleName').value = '';
+    document.getElementById('triggerMinutes').value = '5';
+    setWizardStep(1);
+}
+
+async function saveRule() {
+    const modal = document.getElementById('ruleEditor');
+    const variant = modal._variants?.[Number(document.getElementById('routeDirectionSelect').value)];
+    const stop = modal._stops?.[Number(document.getElementById('routeStopSelect').value)];
+    if (!variant || !stop) return;
+    const thresholdMinutes = document.querySelector('input[name="triggerType"]:checked')?.value === 'arriving' ? 1 : Number(document.getElementById('triggerMinutes').value);
+    const days = [...document.querySelectorAll('#step-3 .days-selector input:checked')].map(input => Number(input.value));
+    if (!days.length || document.getElementById('startTime').value > document.getElementById('endTime').value) { alert('Choose at least one day and a valid time range.'); return; }
+    const name = document.getElementById('finalRuleName').value.trim() || `${variant.route} at ${stop.name_en}`;
+    const rule = { id: crypto.randomUUID(), name, type: 'conditional', mode: 'visual', enabled: true,
+        provider: variant._provider, route: variant.route, dir: variant.dir, service_type: variant.service_type,
+        route_id: variant.route_id, region: variant.region, stopId: stop.id, stopName: stop.name_en,
+        thresholdMinutes, schedule: { days, startTime: document.getElementById('startTime').value, endTime: document.getElementById('endTime').value }, conditions: { operator: 'AND', rules: [{ field: 'eta', target: 'next_bus', operator: '<=', value: thresholdMinutes }] },
+        actions: [{ type: 'notification', title: `${variant.route} bus approaching`, message: `{{eta.next}} min at ${stop.name_en}`, sound: true }],
+        createdAt: new Date().toISOString() };
+    const validation = RuleEngine.validateRule(rule);
+    if (!validation.valid) { alert(validation.errors.join('\n')); return; }
+    state.rules.push(rule);
+    await Storage.saveRules(state.rules);
+    modal.classList.add('hidden');
+    renderRules();
+}
+
 async function handleClearAll() {
     const check = prompt("Type 'DELETE' to confirm clearing all data.");
-    if (check === 'DELETE') { await chrome.storage.local.clear(); alert('All data cleared.'); location.reload(); }
-}async function handleTestNotification() {
+    if (check === 'DELETE') { await chrome.storage.local.clear(); await chrome.storage.sync.clear(); await chrome.storage.local.set({ settings: Storage.getDefaultSettings() }); alert('All data cleared.'); location.reload(); }
+}
+
+async function handleTestNotification() {
     // Send a test notification
     const testAction = {
         type: 'notification',
@@ -536,7 +667,7 @@ async function updateStorageInfo() {
     const bytes = await new Promise(resolve => chrome.storage.local.getBytesInUse(null, resolve));
     elements.storageInfo.textContent = `${(bytes / 1024).toFixed(2)} KB used by EasyETA`;
 }
-function escapeHtml(text) { if (!text) return ''; return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
+function escapeHtml(text) { if (text == null) return ''; return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 
 function updateFolderCounts() {
     state.folders.forEach(folder => {

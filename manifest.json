@@ -22,8 +22,7 @@
   "permissions": [
     "storage",
     "alarms",
-    "notifications",
-    "activeTab"
+    "notifications"
   ],
 
   "host_permissions": [

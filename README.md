@@ -39,9 +39,11 @@ A Chrome extension for Hong Kong public transport ETA (Estimated Time of Arrival
 
 | Operator | Route Search | Stop Search | Real-time ETA |
 |----------|:-----------:|:-----------:|:-------------:|
-| KMB (九巴) | ✅ | ✅ | ✅ (bulk) |
-| CTB (城巴) | ✅ | ✅ | ✅ (per-stop) |
-| GMB (綠色小巴) | ✅ | — | — |
+| KMB (九巴) | ✅ | ✅ | ✅ (bulk, one call per route) |
+| CTB (城巴) | ✅ | — | ✅ (per-stop, batched) |
+| GMB (綠色小巴) | ✅ | — | ✅ (per-stop, batched) |
+
+> Stop-name search is powered by the KMB stop index (~6,700 stops), so it covers KMB stops only. CTB and GMB stops still show up when you open a route.
 
 > **Note**: Some route numbers exist in both KMB and CTB as completely different routes (e.g., KMB route 1 = Chuk Yuen Estate ↔ Star Ferry, CTB route 1 = Central ↔ Happy Valley). The extension shows both with a provider badge so you can pick the right one.
 
@@ -64,8 +66,12 @@ EasyETA_HK/
 │   ├── api.js                 # HK transport API client (KMB, CTB, GMB)
 │   ├── storage.js             # Chrome storage utilities
 │   ├── rule-engine.js         # Rule evaluation engine
+│   ├── rule-engine.selftest.js
+│   ├── storage.selftest.js
+│   ├── service-worker.selftest.js
 │   ├── import-export.js       # Data backup/restore
-│   └── i18n.js                # English + 繁體中文
+│   ├── i18n.js                # English + 繁體中文
+│   └── api.selftest.js        # node scripts/api.selftest.js
 ├── icons/                     # Extension icons + SVG sprite
 └── _locales/                  # Chrome i18n manifests
 ```
@@ -94,6 +100,12 @@ EasyETA_HK/
 # 1. Make changes to the source files
 # 2. Go to chrome://extensions/
 # 3. Click the refresh icon on the EasyETA_HK card
+
+# Route/variant logic self-check (provider grouping, CTB direction mapping, stale-ETA filtering)
+node scripts/api.selftest.js
+node scripts/rule-engine.selftest.js
+node scripts/storage.selftest.js
+node scripts/service-worker.selftest.js
 ```
 
 ## Roadmap
@@ -105,8 +117,8 @@ EasyETA_HK/
 - [x] Dark mode
 - [x] Bilingual UI (EN/繁體中文)
 - [x] Export/Import data
-- [x] Notification rules (script mode)
-- [ ] Visual rule builder
+- [x] ETA threshold notification rules with schedules
+- [ ] Custom JavaScript rules (intentionally disabled for security)
 - [ ] Weather API integration
 - [ ] MTR, tram, ferry support
 - [ ] Chrome Web Store release

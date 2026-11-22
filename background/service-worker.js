@@ -1,192 +1,7 @@
 // Background Service Worker
 // Handles alarms, notifications, and rule evaluation
 
-// Inline utility functions to avoid importScripts issues
-const Storage = {
-    async get(key) {
-        try {
-            const result = await chrome.storage.local.get(key);
-            return result[key] || null;
-        } catch (error) {
-            console.error(`Error getting ${key} from storage:`, error);
-            return null;
-        }
-    },
-
-    async set(key, value) {
-        try {
-            await chrome.storage.local.set({ [key]: value });
-        } catch (error) {
-            console.error(`Error setting ${key} in storage:`, error);
-        }
-    },
-
-    async setMultiple(items) {
-        try {
-            await chrome.storage.local.set(items);
-        } catch (error) {
-            console.error('Error setting multiple values:', error);
-        }
-    },
-
-    async getRules() {
-        const rules = await this.get('rules');
-        return rules || [];
-    },
-
-    async saveRules(rules) {
-        return await this.set('rules', rules);
-    },
-
-    async getSettings() {
-        const settings = await this.get('settings');
-        return settings || this.getDefaultSettings();
-    },
-
-    getDefaultSettings() {
-        return {
-            notifications: true,
-            autoRefresh: true,
-            theme: 'light',
-            language: 'en'
-        };
-    }
-};
-
-const API = {
-    baseUrls: {
-        kmb: 'https://data.etabus.gov.hk/v1/transport/kmb',
-        rt: 'https://rt.data.gov.hk/v1/transport'
-    },
-
-    cache: new Map(),
-    cacheTimeout: 30000,
-
-    async fetch(url) {
-        const cacheKey = url;
-        const cached = this.cache.get(cacheKey);
-        
-        if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
-            return cached.data;
-        }
-
-        try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            const data = await response.json();
-            this.cache.set(cacheKey, { data, timestamp: Date.now() });
-            return data;
-        } catch (error) {
-            console.error('API fetch error:', error);
-            throw error;
-        }
-    },
-
-    async getETA(stopId, route = null) {
-        const url = `${this.baseUrls.kmb}/stop-eta/${stopId}`;
-        
-        try {
-            const response = await this.fetch(url);
-            
-            if (response && response.data) {
-                let etas = response.data;
-                
-                if (route) {
-                    etas = etas.filter(e => e.route === route);
-                }
-                
-                etas.sort((a, b) => new Date(a.eta) - new Date(b.eta));
-
-                return etas.map(eta => ({
-                    ...eta,
-                    formatted: this.formatETA(eta.eta)
-                }));
-            }
-        } catch (error) {
-            console.warn('ETA API failed, returning empty array:', error);
-        }
-        return [];
-    },
-
-    formatETA(etaISO) {
-        if (!etaISO) {
-            return {
-                minutes: null,
-                text: 'N/A',
-                status: 'normal',
-                time: '--:--',
-                display: 'N/A'
-            };
-        }
-
-        const now = new Date();
-        const eta = new Date(etaISO);
-        const diffMs = eta - now;
-        const diffMins = Math.round(diffMs / 60000);
-
-        let status = 'normal';
-        let text = '';
-
-        if (diffMins <= 0) {
-            status = 'arriving';
-            text = 'Arriving';
-        } else if (diffMins <= 3) {
-            status = 'arriving';
-            text = `${diffMins} min${diffMins > 1 ? 's' : ''}`;
-        } else if (diffMins <= 10) {
-            status = 'soon';
-            text = `${diffMins} mins`;
-        } else {
-            status = 'normal';
-            text = `${diffMins} mins`;
-        }
-
-        const time = eta.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        const display = `${text} (${time})`;
-
-        return {
-            minutes: diffMins,
-            text,
-            status,
-            time,
-            display
-        };
-    }
-};
-
-const RuleEngine = {
-    async evaluate(rule, context) {
-        if (!rule.enabled) return false;
-
-        switch (rule.type) {
-            case 'one-time':
-                return this.evaluateOneTime(rule, context);
-            case 'recurring':
-                return this.evaluateRecurring(rule, context);
-            case 'conditional':
-                return this.evaluateConditional(rule, context);
-            default:
-                return false;
-        }
-    },
-
-    evaluateOneTime(rule, context) {
-        // Simple implementation for service worker
-        return rule.conditions && rule.conditions.length > 0;
-    },
-
-    evaluateRecurring(rule, context) {
-        // Simple implementation for service worker
-        return rule.conditions && rule.conditions.length > 0;
-    },
-
-    evaluateConditional(rule, context) {
-        // For service worker, just check if conditions exist
-        return rule.conditions && rule.conditions.length > 0;
-    }
-};
+importScripts('../scripts/storage.js', '../scripts/api.js', '../scripts/rule-engine.js');
 
 // Initialize on installation
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -221,7 +36,9 @@ async function initializeExtension() {
         }
     };
     
-    await Storage.setMultiple(defaults);
+    const existing = await chrome.storage.local.get(null);
+    const missing = Object.fromEntries(Object.entries(defaults).filter(([key]) => existing[key] === undefined));
+    if (Object.keys(missing).length) await Storage.setMultiple(missing);
     console.log('Extension initialized with defaults');
 }
 
@@ -232,10 +49,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         
         if (alarm.name === 'checkRules') {
             await checkAllRules();
-        } else if (alarm.name.startsWith('rule-')) {
-            // Specific rule alarm
-            const ruleId = alarm.name.replace('rule-', '');
-            await evaluateRule(ruleId);
         }
     } catch (error) {
         console.error('Error handling alarm:', error);
@@ -244,10 +57,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 // Set up periodic rule checking
 async function setupRuleChecking() {
-    // Check rules every minute
-    chrome.alarms.create('checkRules', {
-        periodInMinutes: 1
-    });
+    // Chrome alarms have a minimum practical period of one minute.
+    chrome.alarms.create('checkRules', { periodInMinutes: 1 });
 }
 
 // Check all active rules
@@ -273,9 +84,18 @@ async function evaluateRule(ruleId) {
         // Build context for rule evaluation
         const context = await buildEvaluationContext(rule);
         
-        // Evaluate the rule
-        const shouldTrigger = await RuleEngine.evaluate(rule, context);
-        
+        // ETA thresholds are edge-triggered; legacy time rules use the shared evaluator.
+        let shouldTrigger = rule.thresholdMinutes == null ? await RuleEngine.evaluate(rule, context) : false;
+        if (rule.thresholdMinutes != null) {
+            const current = context.eta?.next;
+            const t = `${String(context.currentTime.hour).padStart(2, '0')}:${String(context.currentTime.minute).padStart(2, '0')}`;
+            const scheduled = !rule.schedule || (rule.schedule.days.includes(context.currentTime.day) && t >= rule.schedule.startTime && t <= rule.schedule.endTime);
+            shouldTrigger = scheduled && Number.isFinite(current) && current <= rule.thresholdMinutes &&
+                !(Number.isFinite(rule.lastEtaMinutes) && rule.lastEtaMinutes <= rule.thresholdMinutes);
+            rule.lastEtaMinutes = current;
+            await Storage.saveRules(rules);
+        }
+
         if (shouldTrigger) {
             await triggerRuleActions(rule, context);
             
@@ -308,26 +128,15 @@ async function buildEvaluationContext(rule) {
         rule: rule
     };
     
-    // Fetch ETA if rule has stop information
-    if (rule.stopId) {
+    if (rule.stopId && rule.provider && rule.route) {
         try {
-            const etas = await API.getETA(rule.stopId, rule.route);
-            
-            if (etas && etas.length > 0) {
-                const formattedEtas = etas.map(eta => API.formatETA(eta.eta));
-                
-                context.eta = {
-                    all: formattedEtas,
-                    next: formattedEtas[0]?.minutes || null,
-                    second: formattedEtas[1]?.minutes || null,
-                    third: formattedEtas[2]?.minutes || null,
-                    time: formattedEtas[0]?.time || null,
-                    raw: etas
-                };
-            }
-        } catch (error) {
-            console.error('Error fetching ETA for rule:', error);
-        }
+            const variant = { _provider: rule.provider, route: rule.route, dir: rule.dir,
+                service_type: rule.service_type, route_id: rule.route_id, region: rule.region };
+            const etas = await API.getStopRouteEtas(rule.stopId, variant);
+            context.eta = { all: etas, next: etas[0]?.minutes ?? null,
+                second: etas[1]?.minutes ?? null, third: etas[2]?.minutes ?? null,
+                time: etas[0]?.time || null, raw: etas };
+        } catch (error) { console.error('Error fetching ETA for rule:', error); }
     }
     
     return context;
@@ -427,10 +236,7 @@ async function showNotification(action, context) {
     
     // Play sound if enabled
     const settings = await Storage.getSettings();
-    if (action.sound && settings.notifications.sound) {
-        // Note: Sound in service workers is limited, may need to use notification sound
-        console.log('Sound notification enabled');
-    }
+    // Chrome notification sound is controlled by the operating system.
     
     return notificationId;
 }
@@ -439,9 +245,8 @@ async function showNotification(action, context) {
 async function updateBadge(action, context) {
     const text = replaceTemplateVars(action.text, context);
 
-    // Note: Badge updates not available without action manifest permission
-    // Could potentially use declarative content or other approaches in the future
-    console.log('Badge update requested but not available without action:', text);
+    await chrome.action.setBadgeText({ text: String(text).slice(0, 4) });
+    await chrome.action.setBadgeBackgroundColor({ color: '#FF4747' });
 }
 
 // Replace template variables in strings

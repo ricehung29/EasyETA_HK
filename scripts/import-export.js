@@ -8,6 +8,8 @@ const ImportExport = {
      */
     async exportAll() {
         const data = await Storage.getAll();
+        const sync = await chrome.storage.sync.get(null);
+        const settings = await Storage.getSettings();
         
         const exportData = {
             version: '1.0.0',
@@ -20,7 +22,7 @@ const ImportExport = {
                 folders: data.folders || [],
                 timeslots: data.timeslots || [],
                 recentSearches: data.recentSearches || [],
-                settings: data.settings || Storage.getDefaultSettings(),
+                settings: { ...settings, ...sync },
                 usage: data.usage || {}
             },
             
@@ -103,13 +105,11 @@ const ImportExport = {
         const warnings = [];
         
         // Check required fields
-        if (!data.version) {
-            errors.push('Missing version field');
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            errors.push('Import must be a JSON object');
         }
-        
-        if (!data.data) {
-            errors.push('Missing data field');
-        }
+        if (!data?.version) errors.push('Missing version field');
+        if (!data?.data || typeof data.data !== 'object') errors.push('Missing data field');
         
         // Check version compatibility
         if (data.version && !this.isVersionCompatible(data.version)) {
@@ -132,11 +132,8 @@ const ImportExport = {
             }
         }
         
-        // Validate favorites if present
-        if (data.data?.favorites) {
-            if (!Array.isArray(data.data.favorites)) {
-                errors.push('Favorites must be an array');
-            }
+        for (const key of ['favorites', 'folders', 'timeslots', 'recentSearches']) {
+            if (data.data?.[key] != null && !Array.isArray(data.data[key])) errors.push(`${key} must be an array`);
         }
         
         return {
@@ -174,12 +171,13 @@ const ImportExport = {
             importSettings = true
         } = options;
         
-        // Validate first
-        const validation = this.validateImport(data);
-        if (!validation.valid) {
-            throw new Error(`Invalid import data: ${validation.errors.join(', ')}`);
+        // Normalize the older flat backup format before validation/import.
+        if (data && !data.data && ['favorites', 'folders', 'rules'].some(key => Array.isArray(data[key]))) {
+            data = { version: data.version || '1.0.0', data };
         }
-        
+        const validation = this.validateImport(data);
+        if (!validation.valid) throw new Error(`Invalid import data: ${validation.errors.join(', ')}`);
+
         const result = {
             success: false,
             imported: {
@@ -329,6 +327,7 @@ const ImportExport = {
                     : data.data.settings;
                 
                 await Storage.saveSettings(newSettings);
+                await chrome.storage.sync.set({ theme: newSettings.theme, language: newSettings.language, autoRefresh: newSettings.autoRefresh });
                 result.imported.settings = true;
             }
             
